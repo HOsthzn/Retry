@@ -112,4 +112,55 @@ End Try
 
 ```
 
+___
+
+## Examples JavaScript
+> for this code to work in JavaScript you will need to be using ES6
+
+The Retry object provides two functions to perform retries with either a regular or an async function. In this section, we will show you how to use these functions to perform retries.
+
+### Performing Retries with the 'Retry.do' Function
+The Retry.do function is used to perform retries with a regular function. It takes four parameters:
+
+- action: The function to be executed.
+- retryInterval: The interval between retries, in milliseconds.
+- maxAttemptCount: The maximum number of attempts (defaults to 3).
+- retryStrategy: The strategy to use for retrying (defaults to Retry.RetryStrategy.FixedInterval).
+Here is an example of how to use the Retry.do function to perform retries:
+```javascript
+const Retry = require("./retry");
+
+function myAction() {
+  // Your logic here
+}
+
+Retry.do(myAction, 1000, 5, Retry.RetryStrategy.ExponentialBackOff);
+```
+In this example, myAction will be executed up to five times, with a retry interval of 1 second for the first attempt, 2 seconds for the second attempt, 4 seconds for the third attempt, 8 seconds for the fourth attempt, and 16 seconds for the fifth attempt. If all attempts fail, an error will be thrown.
+
+### Performing Retries with the Retry.doAsync Function
+The 'Retry.doAsync' function is used to perform retries with an async function. It takes the same parameters as the 'Retry.do' function:
+```javascript
+const Retry = require("./retry");
+
+async function myAsyncAction() {
+  // Your logic here
+}
+
+await Retry.doAsync(myAsyncAction, 1000, 5, Retry.RetryStrategy.ExponentialBackOff);
+```
+In this example, myAsyncAction will be executed up to five times, with a retry interval of 1 second for the first attempt, 2 seconds for the second attempt, 4 seconds for the third attempt, 8 seconds for the fourth attempt, and 16 seconds for the fifth attempt. If all attempts fail, an error will be thrown.
+
+### Setting a Custom Retry Strategy
+You can set a custom retry strategy by creating a new function that calculates the retry interval and passing it to the 'Retry.do' or 'Retry.doAsync' function. For example:
+```javascript
+const Retry = require("./retry");
+
+function myCustomStrategy(attempted) {
+  return attempted * 1000;
+}
+
+Retry.do(myAction, myCustomStrategy, 5);
+```
+In this example, the retry interval will be 1 second for the first attempt, 2 seconds for the second attempt, 3 seconds for the third attempt, 4 seconds for the fourth attempt, and 5 seconds for the fifth attempt.
 
