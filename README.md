@@ -1,69 +1,59 @@
-# Usage Examples
+# Usage Guide for the Retry Object
 
-## C#
+## Overview
+The Retry object provides a convenient way to handle retry logic for your code. There are 3 different methods to handle retry logic for synchronous and asynchronous actions, as well as actions that return a result.
+
+## Retry Strategies
+The Retry object provides two retry strategies:
+
+- FixedInterval: waits a constant amount of time before retrying
+- ExponentialBackOff: waits an amount of time that increases exponentially before retrying
+
+## Examples
+
+### Retrying a Synchronous Action
 ```csharp
-class Program
+// An action that throws an exception.
+Action action = () => { throw new Exception("Error!"); };
+
+// Retry the action with a fixed interval of 1 second, for a maximum of 3 attempts, using the FixedInterval strategy.
+Retry.Do(action, TimeSpan.FromSeconds(1), maxAttemptCount: 3, retryStrategy: RetryStrategy.FixedInterval);
+```
+
+### Retrying an Asynchronous Action
+```csharp
+// An asynchronous action that throws an exception.
+Func<Task> asyncAction = async () => { await Task.Delay(1000); throw new Exception("Error!"); };
+
+// Retry the asynchronous action with a fixed interval of 1 second, for a maximum of 3 attempts, using the FixedInterval strategy.
+await Retry.DoAsync(asyncAction, TimeSpan.FromSeconds(1), maxAttemptCount: 3, retryStrategy: RetryStrategy.FixedInterval);
+```
+
+### Retrying an Action that Returns a Result
+```csharp
+// An action that returns a result and throws an exception.
+Func<int> func = () => { throw new Exception("Error!"); return 1; };
+
+// Retry the action with a fixed interval of 1 second, for a maximum of 3 attempts, using the FixedInterval strategy.
+int result = Retry.Do(func, TimeSpan.FromSeconds(1), maxAttemptCount: 3, retryStrategy: RetryStrategy.FixedInterval);
+```
+
+###Exception Handling
+The Retry object throws an AggregateException if all the retry attempts fail. This exception contains all the individual exceptions that were caught during the retry attempts.
+
+You can catch this exception to handle the failures, for example:
+```csharp
+try
 {
-    static void Main(string[] args)
+    Retry.Do(action, TimeSpan.FromSeconds(1), maxAttemptCount: 3, retryStrategy: RetryStrategy.FixedInterval);
+}
+catch (AggregateException ex)
+{
+    Console.WriteLine("All retry attempts failed.");
+    foreach (var innerException in ex.InnerExceptions)
     {
-        Retry.doAsync(() => MakeWebRequest(), 1000, 3, Retry.RetryStrategy.FixedInterval)
-            .GetAwaiter()
-            .GetResult();
-    }
-
-    static async Task MakeWebRequest()
-    {
-        // code to make a web request
-        Console.WriteLine("Making web request");
+        Console.WriteLine(innerException.Message);
     }
 }
 ```
-## VB.Net#
-```vbnet
-Public Class Example
-    Private Shared Retry As New Retry
 
-    Public Shared Sub Main()
-        Dim result As String = Retry.Do(Function() GetDataFromAPI(), 1000, 3, Retry.RetryStrategy.ExponentialBackOff)
-        Console.WriteLine(result)
-    End Sub
-
-    Private Shared Function GetDataFromAPI() As String
-        ' Some code here to retrieve data from an API
-        ' ...
-
-        If Not String.IsNullOrEmpty(data) Then
-            Return data
-        Else
-            Throw New Exception("Failed to get data from API")
-        End If
-    End Function
-End Class
-```
-## JavaScript#
-> js will reqire the usage of ES6
-``` javascript
-function expensiveNetworkCall() {
-  console.log("Making network call");
-  // some network call implementation that throws error if fails
-}
-
-Retry.doAsync(() => {
-  expensiveNetworkCall();
-}, 1000, 3, Retry.RetryStrategy.ExponentialBackOff)
-.catch((err) => {
-  console.error("Network call failed after maximum retries: ", err);
-});
-
-function readFile(filePath) {
-  console.log(`Reading file: ${filePath}`);
-  // some file read implementation that throws error if fails
-}
-
-Retry.do(() => {
-  readFile('sample.txt');
-}, 500, 5, Retry.RetryStrategy.FixedInterval)
-.catch((err) => {
-  console.error("File read failed after maximum retries: ", err);
-});
-```
