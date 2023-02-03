@@ -41,6 +41,7 @@ Public Class Example
 End Class
 ```
 ## JavaScript#
+> js will reqire the usage of ES6
 ``` javascript
 function expensiveNetworkCall() {
   console.log("Making network call");
