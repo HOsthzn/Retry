@@ -115,7 +115,7 @@ End Try
 ___
 
 ## Examples JavaScript
-> for this code to work in JavaScript you will need to be using ES6
+> for this code to work in JavaScript you will need to using ES6
 
 The Retry object provides two functions to perform retries with either a regular or an async function. In this section, we will show you how to use these functions to perform retries.
 
