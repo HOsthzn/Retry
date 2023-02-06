@@ -1,4 +1,4 @@
-# Usage Guide for the Retry Object In
+# Usage Guide for the Retry
 
 ## Overview
 The Retry object provides a convenient way to handle retry logic for your code. There are 3 different methods to handle retry logic for synchronous and asynchronous actions, as well as actions that return a result.
