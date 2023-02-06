@@ -164,3 +164,30 @@ Retry.do(myAction, myCustomStrategy, 5);
 ```
 In this example, the retry interval will be 1 second for the first attempt, 2 seconds for the second attempt, 3 seconds for the third attempt, 4 seconds for the fourth attempt, and 5 seconds for the fifth attempt.
 
+___
+
+## Examples T-SQL
+
+Here are a few examples of how you can use the Retry procedure to retry executing other procedures and functions in SQL.
+
+### Retrying the execution of a stored procedure
+
+You can use the Retry procedure to retry executing another stored procedure in case of failure. Here's an example:
+```tsql
+DECLARE @tsql NVARCHAR(MAX) = 'EXEC usp_SomeProcedure';
+EXEC Retry @tsql, 5, '00:00:10';
+```
+
+In this example, the Retry procedure is used to execute the usp_SomeProcedure stored procedure. The @tsql variable contains the T-SQL code to execute, which is passed as an argument to the Retry procedure. The second argument 5 is the number of retries, and the third argument '00:00:10' is the interval time between each retry.
+
+### Retrying the execution of a function
+
+You can also use the Retry procedure to retry executing a function in case of failure. Here's an example:
+```tsql
+DECLARE @tsql NVARCHAR(MAX) = 'SELECT dbo.fn_SomeFunction()';
+EXEC Retry @tsql, 5, '00:00:10';
+```
+
+In this example, the Retry procedure is used to execute the fn_SomeFunction function. The @tsql variable contains the T-SQL code to execute, which is passed as an argument to the Retry procedure. The second argument 5 is the number of retries, and the third argument '00:00:10' is the interval time between each retry.
+
+Note that in both examples, if all the retries fail, the original error message will be raised by the Retry procedure.
