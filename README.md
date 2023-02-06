@@ -40,7 +40,7 @@ Func<int> func = () => { throw new Exception("Error!"); return 1; };
 int result = Retry.Do(func, TimeSpan.FromSeconds(1), maxAttemptCount: 3, retryStrategy: RetryStrategy.FixedInterval);
 ```
 
-###Exception Handling
+### Exception Handling
 The Retry object throws an AggregateException if all the retry attempts fail. This exception contains all the individual exceptions that were caught during the retry attempts.
 
 You can catch this exception to handle the failures, for example:
@@ -96,7 +96,7 @@ Dim func As Func(Of Integer) = Function()
 Dim result As Integer = Retry.Do(func, TimeSpan.FromSeconds(1), maxAttemptCount:=3, retryStrategy:=RetryStrategy.FixedInterval)
 ```
 
-###Exception Handling
+### Exception Handling
 The Retry object throws an AggregateException if all the retry attempts fail. This exception contains all the individual exceptions that were caught during the retry attempts.
 
 You can catch this exception to handle the failures, for example:
