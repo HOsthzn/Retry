@@ -186,7 +186,7 @@ Here are a few examples of how you can use the Retry procedure to retry executin
 
 You can use the Retry procedure to retry executing another stored procedure in case of failure. Here's an example:
 ```tsql
-DECLARE @tsql NVARCHAR(MAX) = 'EXEC usp_SomeProcedure';
+DECLARE @tsql NVARCHAR(MAX) = 'usp_SomeProcedure';
 EXEC Retry @tsql, 5, '00:00:10';
 ```
 
