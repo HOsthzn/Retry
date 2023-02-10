@@ -10,7 +10,7 @@ BEGIN
         BEGIN
             BEGIN TRY
                 -- Execute the specified T-SQL code
-                EXEC (@TSQLCode);
+                EXEC sp_executesql @TSQLCode;
 
                 -- Set the number of retries to 0 to break out of the loop
                 SET @retry = 0;
