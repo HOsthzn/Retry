@@ -24,7 +24,7 @@ const Retry = {
         
         // Wait for the interval before retrying (except for the first attempt)
         if (attempted > 0) {
-          await new Promise(resolve => setTimeout(resolve, interval));
+          setTimeout(resolve, interval);
         }
 
         // Perform the action
