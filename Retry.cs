@@ -29,16 +29,8 @@
                 return TimeSpan.FromMilliseconds( Math.Pow( 2, attempted - 1 ) * retryInterval.TotalMilliseconds );
             }
         }
-
-        /// <summary>
-        /// Executes the input action after waiting for the calculated interval.
-        /// </summary>
-        /// <param name="attempted">The number of attempts made so far.</param>
-        /// <param name="retryInterval">The time interval between attempts.</param>
-        /// <param name="retryStrategy">Strategy to determine the time interval.</param>
-        /// <param name="action">The action to execute.</param>
-        /// <param name="cancellationToken">Token to cancel the operation.</param>
-        public static void ExecuteScheduledTask( int               attempted
+        
+        private static void ExecuteScheduledTask( int               attempted
                                                , TimeSpan          retryInterval
                                                , IRetryStrategy    retryStrategy
                                                , Action            action
