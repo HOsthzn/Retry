@@ -1,198 +1,277 @@
-public static class Retry
-{
-    /// <summary>
-    ///     Enumeration of the different retry strategies that can be used.
+/// <summary>
+    /// Defines a utility class for managing retries of operations.
     /// </summary>
-    public enum RetryStrategy
+    public static class Retry
     {
-        FixedInterval,
-        ExponentialBackOff
+        /// <summary>
+        /// Interface for defining a strategy for retry intervals.
+        /// </summary>
+        public interface IRetryStrategy
+        {
+            /// <summary>
+            /// Calculates the interval at which the retry operation should be attempted.
+            /// </summary>
+            /// <param name="attempted">The number of attempts made so far.</param>
+            /// <param name="retryInterval">The time interval to wait before retrying operation.</param>
+            /// <returns>The calculated time interval.</returns>
+            TimeSpan CalculateInterval( int attempted, TimeSpan retryInterval );
+        }
+
+        public class FixedIntervalStrategy : IRetryStrategy
+        {
+            public TimeSpan CalculateInterval( int attempted, TimeSpan retryInterval ) { return retryInterval; }
+        }
+
+        public class ExponentialBackOffStrategy : IRetryStrategy
+        {
+            public TimeSpan CalculateInterval( int attempted, TimeSpan retryInterval )
+            {
+                return TimeSpan.FromMilliseconds( Math.Pow( 2, attempted - 1 ) * retryInterval.TotalMilliseconds );
+            }
+        }
+
+        /// <summary>
+        /// Executes the input action after waiting for the calculated interval.
+        /// </summary>
+        /// <param name="attempted">The number of attempts made so far.</param>
+        /// <param name="retryInterval">The time interval between attempts.</param>
+        /// <param name="retryStrategy">Strategy to determine the time interval.</param>
+        /// <param name="action">The action to execute.</param>
+        /// <param name="cancellationToken">Token to cancel the operation.</param>
+        public static void ExecuteScheduledTask( int               attempted
+                                               , TimeSpan          retryInterval
+                                               , IRetryStrategy    retryStrategy
+                                               , Action            action
+                                               , CancellationToken cancellationToken = default )
+        {
+            TimeSpan interval = retryStrategy.CalculateInterval( attempted, retryInterval );
+            if ( attempted > 0 ) cancellationToken.WaitHandle.WaitOne( interval );
+            action.Invoke();
+        }
+
+        // Async version of previous method.
+        private static async Task ExecuteScheduledTaskAsync( int               attempted
+                                                           , TimeSpan          retryInterval
+                                                           , IRetryStrategy    retryStrategy
+                                                           , Func< Task >      action
+                                                           , CancellationToken cancellationToken = default )
+        {
+            TimeSpan interval = retryStrategy.CalculateInterval( attempted, retryInterval );
+            if ( attempted > 0 )
+                await Task.Delay( interval, cancellationToken );
+            await action();
+        }
+
+        // Async version, but also returns a result
+        private static async Task< TResult > ExecuteScheduledTaskAsync<TResult>(
+            int                     attempted
+          , TimeSpan                retryInterval
+          , IRetryStrategy?         retryStrategy
+          , Func< Task< TResult > > function
+          , CancellationToken       cancellationToken = default )
+        {
+            TimeSpan interval = retryStrategy.CalculateInterval( attempted, retryInterval );
+            if ( attempted > 0 )
+                await Task.Delay( interval, cancellationToken );
+            return await function();
+        }
+
+        // Method to handle exceptions. If the exception is not retryable, it is added to the state's list of exceptions and returns false.
+        private static bool HandleException( RetryState              state
+                                           , Exception               ex
+                                           , Predicate< Exception >? isRetryable
+                                           , int                     attemptCount
+                                           , TimeSpan                retryInterval )
+        {
+            if ( isRetryable != null && !isRetryable.Invoke( ex ) )
+            {
+                state.Exceptions.Add( ex );
+                return false;
+            }
+
+            state.Exceptions.Add( ex );
+            state.LogWarning
+                ?.Invoke( $"Failed to complete the action on attempt {attemptCount + 1}, retrying in {retryInterval}"
+                        , ex );
+            return true;
+        }
+
+        /// <summary>
+        /// Executes an action with retries.
+        /// </summary>
+        /// <param name="action">The action to execute.</param>
+        /// <param name="retryInterval">The time interval between each attempt.</param>
+        /// <param name="maxAttemptCount">The maximum number of attempts.</param>
+        /// <param name="retryStrategy">The strategy to calculate the interval between attempts.</param>
+        /// <param name="isRetryable">The predicate function to determine if the exception is retryable or not.</param>
+        /// <param name="logWarning">The action to log a warning message.</param>
+        /// <param name="cancellationToken">The cancellation token to cancel the operation.</param>
+        /// <param name="exceptionFilter">The function to filter out exceptions.</param>
+        public static void Do(
+            Action                       action
+          , TimeSpan                     retryInterval
+          , int                          maxAttemptCount   = 3
+          , IRetryStrategy?              retryStrategy     = null
+          , Predicate< Exception >?      isRetryable       = null
+          , Action< string, Exception >? logWarning        = null
+          , CancellationToken            cancellationToken = default
+          , Func< Exception, bool >?     exceptionFilter   = null )
+        {
+            retryStrategy ??= new FixedIntervalStrategy();
+            RetryState state = new RetryState { LogWarning = logWarning };
+
+            for ( int attempted = 1; attempted <= maxAttemptCount; attempted++ )
+                try
+                {
+                    ExecuteScheduledTask( attempted, retryInterval, retryStrategy, action, cancellationToken );
+                    return;
+                }
+                catch ( Exception ex ) when ( exceptionFilter?.Invoke( ex ) ?? true )
+                {
+                    if ( !HandleException( state, ex, isRetryable, attempted, retryInterval ) )
+                        throw new AggregateException( state.Exceptions );
+                }
+
+            throw new AggregateException( state.Exceptions );
+        }
+
+        /// <summary>
+        /// Executes a function that returns a result with retries.
+        /// </summary>
+        /// <param name="func">The function to execute.</param>
+        /// <param name="retryInterval">The time interval between each attempt.</param>
+        /// <param name="maxAttemptCount">The maximum number of attempts.</param>
+        /// <param name="retryStrategy">The strategy to calculate the interval between attempts.</param>
+        /// <param name="isRetryable">The predicate function to determine if the exception is retryable or not.</param>
+        /// <param name="logWarning">The action to log a warning message.</param>
+        /// <param name="cancellationToken">The cancellation token to cancel the operation.</param>
+        /// <param name="exceptionFilter">The function to filter out exceptions.</param>
+        public static TResult Do<TResult>(
+            Func< TResult >              func
+          , TimeSpan                     retryInterval
+          , int                          maxAttemptCount   = 3
+          , IRetryStrategy?              retryStrategy     = null
+          , Predicate< Exception >?      isRetryable       = null
+          , Action< string, Exception >? logWarning        = null
+          , CancellationToken            cancellationToken = default
+          , Func< Exception, bool >?     exceptionFilter   = null )
+        {
+            retryStrategy ??= new FixedIntervalStrategy();
+            RetryState state = new RetryState { LogWarning = logWarning };
+
+            for ( int attempted = 1; attempted <= maxAttemptCount; attempted++ )
+                try
+                {
+                    // To capture the result of a function in a delegate, we use a workaround by initializing it outside the delegate
+                    TResult result = default!;
+                    ExecuteScheduledTask( attempted
+                                        , retryInterval
+                                        , retryStrategy
+                                        , () => { result = func(); }
+                                        , cancellationToken );
+                    return result;
+                }
+                catch ( Exception ex )when ( exceptionFilter?.Invoke( ex ) ?? true )
+                {
+                    if ( !HandleException( state, ex, isRetryable, attempted, retryInterval ) )
+                        throw new AggregateException( state.Exceptions );
+                }
+
+            throw new AggregateException( state.Exceptions );
+        }
+
+        /// <summary>
+        /// Executes an async action with retries.
+        /// </summary>
+        /// <param name="action">The action to execute.</param>
+        /// <param name="retryInterval">The time interval between each attempt.</param>
+        /// <param name="maxAttemptCount">The maximum number of attempts.</param>
+        /// <param name="retryStrategy">The strategy to calculate the interval between attempts.</param>
+        /// <param name="isRetryable">The predicate function to determine if the exception is retryable or not.</param>
+        /// <param name="logWarning">The action to log a warning message.</param>
+        /// <param name="cancellationToken">The cancellation token to cancel the operation.</param>
+        /// <param name="exceptionFilter">The function to filter out exceptions.</param>
+        public static async Task DoAsync(
+            Func< Task >                 func
+          , TimeSpan                     retryInterval
+          , int                          maxAttemptCount   = 3
+          , IRetryStrategy?              retryStrategy     = null
+          , Predicate< Exception >?      isRetryable       = null
+          , Action< string, Exception >? logWarning        = null
+          , CancellationToken            cancellationToken = default
+          , Func< Exception, bool >?     exceptionFilter   = null )
+        {
+            retryStrategy ??= new FixedIntervalStrategy();
+            RetryState state = new RetryState { LogWarning = logWarning };
+
+            for ( int attempted = 1; attempted <= maxAttemptCount; attempted++ )
+                try
+                {
+                    await ExecuteScheduledTaskAsync( attempted, retryInterval, retryStrategy, func, cancellationToken );
+                    return;
+                }
+                catch ( Exception ex )when ( exceptionFilter?.Invoke( ex ) ?? true )
+                {
+                    if ( !HandleException( state, ex, isRetryable, attempted, retryInterval ) )
+                        throw new AggregateException( state.Exceptions );
+                }
+
+            throw new AggregateException( state.Exceptions );
+        }
+
+        /// <summary>
+        /// Executes a async function that returns a result with retries.
+        /// </summary>
+        /// <param name="func">The function to execute.</param>
+        /// <param name="retryInterval">The time interval between each attempt.</param>
+        /// <param name="maxAttemptCount">The maximum number of attempts.</param>
+        /// <param name="retryStrategy">The strategy to calculate the interval between attempts.</param>
+        /// <param name="isRetryable">The predicate function to determine if the exception is retryable or not.</param>
+        /// <param name="logWarning">The action to log a warning message.</param>
+        /// <param name="cancellationToken">The cancellation token to cancel the operation.</param>
+        /// <param name="exceptionFilter">The function to filter out exceptions.</param>
+        public static async Task< TResult > DoAsync<TResult>(
+            Func< Task< TResult > >      func
+          , TimeSpan                     retryInterval
+          , int                          maxAttemptCount   = 3
+          , IRetryStrategy?              retryStrategy     = null
+          , Predicate< Exception >?      isRetryable       = null
+          , Action< string, Exception >? logWarning        = null
+          , CancellationToken            cancellationToken = default
+          , Func< Exception, bool >?     exceptionFilter   = null )
+        {
+            retryStrategy ??= new FixedIntervalStrategy();
+            RetryState state = new RetryState { LogWarning = logWarning };
+
+            for ( int attempted = 1; attempted <= maxAttemptCount; attempted++ )
+                try
+                {
+                    TResult result
+                        = await ExecuteScheduledTaskAsync( attempted
+                                                         , retryInterval
+                                                         , retryStrategy
+                                                         , func
+                                                         , cancellationToken );
+                    return result;
+                }
+                catch ( Exception ex )when ( exceptionFilter?.Invoke( ex ) ?? true )
+                {
+                    if ( !HandleException( state, ex, isRetryable, attempted, retryInterval ) )
+                        throw new AggregateException( state.Exceptions );
+                }
+
+            throw new AggregateException( state.Exceptions );
+        }
+
+        // Internal class to keep track of retry state.
+        private class RetryState
+        {
+            // Action to log a warning
+            public Action< string, Exception >? LogWarning { get; set; }
+
+            // List of exceptions which occured during retries
+            public List< Exception > Exceptions { get; }
+
+            public RetryState() { this.Exceptions = new List< Exception >(); }
+        }
     }
-
-    /// <summary>
-    ///     Retry the provided action with specified parameters.
-    /// </summary>
-    /// <param name="action">The action to retry.</param>
-    /// <param name="retryInterval">The time interval to wait before retrying the action.</param>
-    /// <param name="maxAttemptCount">The maximum number of attempts to retry the action (default is 3).</param>
-    /// <param name="retryStrategy">The retry strategy to use (default is FixedInterval).</param>
-    public static void Do(
-        Action action,
-        TimeSpan retryInterval,
-        int maxAttemptCount = 3,
-        RetryStrategy retryStrategy = RetryStrategy.FixedInterval)
-    {
-        // List to keep track of exceptions that occur during retries.
-        List<Exception> exceptions = new();
-
-        // Loop through the retry attempts.
-        for (int attempted = 0; attempted < maxAttemptCount; attempted++)
-            try
-            {
-                // Calculate the interval to wait before retrying.
-                TimeSpan interval = retryStrategy == RetryStrategy.ExponentialBackOff
-                    ? TimeSpan.FromMilliseconds(Math.Pow(2, attempted) * retryInterval.TotalMilliseconds)
-                    : retryInterval;
-
-                // Wait before retrying.
-                if (attempted > 0) Task.Delay(interval).Wait();
-
-                // Attempt the action.
-                action();
-
-                // If the action succeeds, return.
-                return;
-            }
-            catch (Exception ex)
-            {
-                // Add the exception to the list of exceptions.
-                exceptions.Add(ex);
-
-                // Write the exception to the console.
-                Console.WriteLine($"Failed to complete action, retrying in {retryInterval}: {ex.Message}");
-            }
-
-        // If all retry attempts fail, throw an AggregateException with all the individual exceptions.
-        throw new AggregateException(exceptions);
-    }
-
-    /// <summary>
-    ///     Retry the provided action with specified parameters.
-    /// </summary>
-    /// <typeparam name="TResult">The type of the result expected from the action to be retried.</typeparam>
-    /// <param name="func">The action to be retried.</param>
-    /// <param name="retryInterval">The time interval to wait before retrying the action.</param>
-    /// <param name="maxAttemptCount">The maximum number of attempts to retry the action (default is 3).</param>
-    /// <param name="retryStrategy">The retry strategy to use (default is FixedInterval).</param>
-    /// <returns>
-    ///     The result of the action if it succeeds, otherwise an AggregateException with all the caught exceptions is
-    ///     thrown.
-    /// </returns>
-    public static TResult Do<TResult>(
-        Func<TResult> func,
-        TimeSpan retryInterval,
-        int maxAttemptCount = 3,
-        RetryStrategy retryStrategy = RetryStrategy.FixedInterval)
-    {
-        // A list to store all the caught exceptions.
-        List<Exception> exceptions = new();
-
-        // Loop to retry the action maxAttemptCount times.
-        for (int attempted = 0; attempted < maxAttemptCount; attempted++)
-            try
-            {
-                // Calculate the interval to wait between retries.
-                TimeSpan interval = retryStrategy == RetryStrategy.ExponentialBackOff
-                    ? TimeSpan.FromMilliseconds(Math.Pow(2, attempted) * retryInterval.TotalMilliseconds)
-                    : retryInterval;
-
-                // Wait between retries, but not before the first attempt.
-                if (attempted > 0) Task.Delay(interval).Wait();
-
-                // Try to execute the action.
-                return func();
-            }
-            catch (Exception ex)
-            {
-                // Add the caught exception to the list of exceptions.
-                exceptions.Add(ex);
-                Console.WriteLine($"Failed to complete action, retrying in {retryInterval}: {ex.Message}");
-            }
-
-        // If the action failed after maxAttemptCount retries, throw an AggregateException with all the caught exceptions.
-        throw new AggregateException(exceptions);
-    }
-
-
-    /// <summary>
-    ///     Retry the asynchronous action
-    /// </summary>
-    /// <param name="action">The asynchronous action to retry</param>
-    /// <param name="retryInterval">The interval to wait before retrying</param>
-    /// <param name="maxAttemptCount">The maximum number of attempts to make</param>
-    /// <param name="retryStrategy">The retry strategy (FixedInterval or ExponentialBackOff) (defaults to FixedInterval)</param>
-    /// <returns></returns>
-    public static async Task DoAsync(
-        Func<Task> action,
-        TimeSpan retryInterval,
-        int maxAttemptCount = 3,
-        RetryStrategy retryStrategy = RetryStrategy.FixedInterval)
-    {
-        // Create a list to store any exceptions that occur during retries
-        List<Exception> exceptions = new();
-
-        // Loop through the retries
-        for (int attempted = 0; attempted < maxAttemptCount; attempted++)
-            try
-            {
-                // Calculate the interval to wait before retrying
-                TimeSpan interval = retryStrategy == RetryStrategy.ExponentialBackOff
-                    ? TimeSpan.FromMilliseconds(Math.Pow(2, attempted) * retryInterval.TotalMilliseconds)
-                    : retryInterval;
-
-                // Wait before retrying (except on first attempt)
-                if (attempted > 0) await Task.Delay(interval);
-
-                // Attempt the action
-                await action();
-
-                // If the action succeeds, return immediately
-                return;
-            }
-            catch (Exception ex)
-            {
-                // Add the exception to the list of exceptions
-                exceptions.Add(ex);
-
-                // Write the exception to the console
-                Console.WriteLine($"Failed to complete action, retrying in {retryInterval}: {ex}");
-            }
-
-        // If all retries have failed, throw an AggregateException containing all of the exceptions
-        throw new AggregateException(exceptions);
-    }
-
-    /// <summary>
-    ///     Retry the asynchronous action
-    /// </summary>
-    /// <typeparam name="TResult">The return type of the function `func`.</typeparam>
-    /// <param name="func">The function to be executed.</param>
-    /// <param name="retryInterval">The interval to wait before retrying</param>
-    /// <param name="maxAttemptCount">The maximum number of attempts to make</param>
-    /// <param name="retryStrategy">The retry strategy (FixedInterval or ExponentialBackOff) (defaults to FixedInterval)</param>
-    /// <returns>The result of the function if it executes successfully, or throws an `AggregateException` if all retries fail.</returns>
-    public static async Task<TResult> DoAsync<TResult>(
-        Func<Task<TResult>> func,
-        TimeSpan retryInterval,
-        int maxAttemptCount = 3,
-        RetryStrategy retryStrategy = RetryStrategy.FixedInterval)
-    {
-        // A list to store all exceptions thrown by the function
-        List<Exception> exceptions = new();
-
-        // Loop for the maximum number of attempts
-        for (int attempted = 0; attempted < maxAttemptCount; attempted++)
-            try
-            {
-                // Determine the interval to wait before retrying based on the retry strategy
-                TimeSpan interval = retryStrategy == RetryStrategy.ExponentialBackOff
-                    ? TimeSpan.FromMilliseconds(Math.Pow(2, attempted) * retryInterval.TotalMilliseconds)
-                    : retryInterval;
-
-                // Wait for the interval if this is not the first attempt
-                if (attempted > 0) await Task.Delay(interval);
-
-                // Try to execute the function
-                return await func();
-            }
-            catch (Exception ex)
-            {
-                // Add the exception to the list and log a message indicating that the function failed and will be retried
-                exceptions.Add(ex);
-                Console.WriteLine($"Failed to complete action, retrying in {retryInterval}: {ex}");
-            }
-
-        // If all retries fail, throw an `AggregateException` containing all exceptions thrown by the function
-        throw new AggregateException(exceptions);
-    }
-}
