@@ -6,13 +6,13 @@ By implementing a retry strategy, you can mitigate the impact of transient failu
 
 The specific implementation of a retry strategy will depend on the programming language and technology you're using, as well as the requirements of your specific application. Common approaches include linear backoff, exponential backoff, and fixed retry count, among others.
 
-> The concepts behind the provided Retry objects can easily be adapted to other programming languages and utilized in a similar fashion
-
 In conclusion, implementing a retry strategy is an important step in making your application more reliable and resilient in the face of transient failures. By taking the time to design and implement a retry strategy, you can help ensure the continued availability and success of your application and protect your users from the negative consequences of failures.
 
 ___
 
 # Retry Library Documentation
+
+> The concepts behind the provided Retry objects can easily be adapted to other programming languages and utilized in a similar fashion
 
 This is a utility library for retrying operations that can encounter transient faults. Retry operations can be
 configured to happen synchronously or asynchronously, and return either a void or a type result. The library also
