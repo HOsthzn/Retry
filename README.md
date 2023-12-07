@@ -12,119 +12,148 @@ In conclusion, implementing a retry strategy is an important step in making your
 
 ___
 
-# Usage Guide for the Retry
+# Retry Library Documentation
 
-## Overview
-The Retry object provides a convenient way to handle retry logic for your code. There are 3 different methods to handle retry logic for synchronous and asynchronous actions, as well as actions that return a result.
+This is a utility library for retrying operations that can encounter transient faults. Retry operations can be
+configured to happen synchronously or asynchronously, and return either a void or a type result. The library also
+provides interfaces for implementing custom retry strategies.
 
-## Retry Strategies
-The Retry object provides two retry strategies:
+## Example usages
 
-- FixedInterval: waits a constant amount of time before retrying
-- ExponentialBackOff: waits an amount of time that increases exponentially before retrying
+Let's illustrate the most common usage scenarios.
 
-___
+**1. Retrying asynchronous operations returning `Task<TResult>`:**
 
-## Examples C#
-
-### Retrying a Synchronous Action
 ```csharp
-// An action that throws an exception.
-Action action = () => { throw new Exception("Error!"); };
-
-// Retry the action with a fixed interval of 1 second, for a maximum of 3 attempts, using the FixedInterval strategy.
-Retry.Do(action, TimeSpan.FromSeconds(1), maxAttemptCount: 3, retryStrategy: RetryStrategy.FixedInterval);
-```
-
-### Retrying an Asynchronous Action
-```csharp
-// An asynchronous action that throws an exception.
-Func<Task> asyncAction = async () => { await Task.Delay(1000); throw new Exception("Error!"); };
-
-// Retry the asynchronous action with a fixed interval of 1 second, for a maximum of 3 attempts, using the FixedInterval strategy.
-await Retry.DoAsync(asyncAction, TimeSpan.FromSeconds(1), maxAttemptCount: 3, retryStrategy: RetryStrategy.FixedInterval);
-```
-
-### Retrying an Action that Returns a Result
-```csharp
-// An action that returns a result and throws an exception.
-Func<int> func = () => { throw new Exception("Error!"); return 1; };
-
-// Retry the action with a fixed interval of 1 second, for a maximum of 3 attempts, using the FixedInterval strategy.
-int result = Retry.Do(func, TimeSpan.FromSeconds(1), maxAttemptCount: 3, retryStrategy: RetryStrategy.FixedInterval);
-```
-
-### Exception Handling
-The Retry object throws an AggregateException if all the retry attempts fail. This exception contains all the individual exceptions that were caught during the retry attempts.
-
-You can catch this exception to handle the failures, for example:
-```csharp
-try
+Func<CancellationToken, Task<int>> action = async (token) => 
 {
-    Retry.Do(action, TimeSpan.FromSeconds(1), maxAttemptCount: 3, retryStrategy: RetryStrategy.FixedInterval);
-}
-catch (AggregateException ex)
+    // some asynchronous operation that could fail
+    // replace with actual implementation
+    return await Task.FromResult(1);
+};
+var result = await Retry.DoAsync(action, 3));
+```
+
+In this case, the action is retried 3 times if it fails, using a fixed delay of 1 second between each retry.
+> Note: the FixedIntervalStrategy with a delay of 1 second is used by default.
+
+**2. Retrying synchronous operations returning `TResult`:**
+
+```csharp
+Func<int> action = () => 
 {
-    Console.WriteLine("All retry attempts failed.");
-    foreach (var innerException in ex.InnerExceptions)
+    // some synchronous operation that could fail
+    // replace with actual implementation
+    return 1;
+};
+var result = Retry.Do(action, 3, new FixedIntervalStrategy(TimeSpan.FromSeconds(3)));
+```
+
+In this case, the action is retried 3 times if it fails, using a fixed delay of 3 second between each retry.
+
+**3. For functions that return `void`:**
+
+```csharp
+Action action = () => 
+{
+    // some operation that could fail
+    // replace with actual implementation
+};
+
+Retry.Do(action, 3, new FixedIntervalStrategy(TimeSpan.FromSeconds(3)));
+```
+
+In this case, the action is retried 3 times if it fails, using a fixed delay of 3 second between each retry.
+
+**4. Implementing custom retry strategies:**
+
+You can also implement custom retry strategies by implementing the `IRetryStrategy` interface.
+
+For instance, an exponential back-off strategy could be implemented like below:
+
+```csharp
+public class CustomExponentialBackOffStrategy: IRetryStrategy
+{
+    public TimeSpan GetNextDelay(int retryAttempt)
     {
-        Console.WriteLine(innerException.Message);
+        var delay = TimeSpan.FromSeconds(Math.Pow(2, retryAttempt));
+        return delay;
     }
 }
 ```
 
-___
+Then use your custom strategy in the retry operation:
 
-## Examples VB.Net
-
-### Retrying a Synchronous Action
-```vbnet
-' An action that throws an exception.
-Dim action As Action = Sub() Throw New Exception("Error!")
-
-' Retry the action with a fixed interval of 1 second, for a maximum of 3 attempts, using the FixedInterval strategy.
-Retry.Do(action, TimeSpan.FromSeconds(1), maxAttemptCount:=3, retryStrategy:=RetryStrategy.FixedInterval)
+```csharp
+Func<int> action = () => 
+{
+    // some operation that could fail
+    // replace with actual implementation
+    return 1;
+};
+var result = Retry.Do(action, 3, new CustomExponentialBackOffStrategy());
 ```
 
-### Retrying an Asynchronous Action
-```vbnet
-' An asynchronous action that throws an exception.
-Dim asyncAction As Func(Of Task) = Async Function()
-                                        Await Task.Delay(1000)
-                                        Throw New Exception("Error!")
-                                    End Function
+## Configuring exception handling
 
-' Retry the asynchronous action with a fixed interval of 1 second, for a maximum of 3 attempts, using the FixedInterval strategy.
-Await Retry.DoAsync(asyncAction, TimeSpan.FromSeconds(1), maxAttemptCount:=3, retryStrategy:=RetryStrategy.FixedInterval)
+You can pass certain conditions that an exception or result must meet in order to trigger a retry. The updated library
+now allows this to be specified as a collection of Func delegates and hence can accept multiple conditions:
+
+```csharp
+IEnumerable<Func<Exception, bool>> shouldRetryOnExceptions = new List<Func<Exception, bool>> 
+{
+    ex => ex is TimeoutException,       // retry on timeout exceptions
+    ex => ex is NetworkException        // retry on network exceptions
+};
+
+IEnumerable<Func<string, bool>> shouldRetryOnResults = new List<Func<string, bool>> 
+{
+    result => string.IsNullOrEmpty(result),  // retry if string is empty or null 
+    result => result.Length < 10,            // retry if string length less than 10
+};
+
+Func<int> action = () => 
+{
+    // some operation that could fail
+    // replace with actual implementation
+    return 1;
+};
+
+var result = Retry.Do(
+    action,
+    3, 
+    new FixedIntervalStrategy(TimeSpan.FromSeconds(1)), 
+    shouldRetryOnExceptions, 
+    shouldRetryOnResults);
 ```
 
-### Retrying an Action that Returns a Result
-```vbnet
-' An action that returns a result and throws an exception.
-Dim func As Func(Of Integer) = Function()
-                                   Throw New Exception("Error!")
-                                   Return 1
-                               End Function
+In this case, retry will occur if any of the specified conditions in exception checks or result checks is met.
 
-' Retry the action with a fixed interval of 1 second, for a maximum of 3 attempts, using the FixedInterval strategy.
-Dim result As Integer = Retry.Do(func, TimeSpan.FromSeconds(1), maxAttemptCount:=3, retryStrategy:=RetryStrategy.FixedInterval)
+## ExponentialBackOffWithJitterStrategy example
+
+```csharp
+Func<CancellationToken, Task<int>> action = async (token) =>
+{
+    // some asynchronous operation that could fail
+    // replace with actual implementation
+    return await Task.FromResult(1);
+};
+
+var jitterStrategy = new ExponentialBackOffWithJitterStrategy(TimeSpan.FromSeconds(1));
+
+var result = await Retry.DoAsync(
+    action: action,
+    retryCount: 3,
+    retryStrategy: jitterStrategy,
+    cancellationToken: CancellationToken.None,
+    shouldRetryOnException: ex => ex is TimeoutException
+);
 ```
 
-### Exception Handling
-The Retry object throws an AggregateException if all the retry attempts fail. This exception contains all the individual exceptions that were caught during the retry attempts.
-
-You can catch this exception to handle the failures, for example:
-```vbnet
-Try
-    Retry.Do(action, TimeSpan.FromSeconds(1), maxAttemptCount:=3, retryStrategy:=RetryStrategy.FixedInterval)
-Catch ex As AggregateException
-    Console.WriteLine("All retry attempts failed.")
-    For Each innerException As var In ex.InnerExceptions
-        Console.WriteLine(innerException.Message)
-    Next
-End Try
-
-```
+In this example, the action is an asynchronous operation that is retried 3 times if it fails. The delay between each
+retry is determined by an ExponentialBackOffWithJitterStrategy which initially waits 1 second, and then increases
+exponentially, with a random jitter/delay added.
+If a TimeoutException is thrown, the operation would be retried based on the retry strategy provided.
 
 ___
 
@@ -168,31 +197,3 @@ Retry.attempt(myAction, myCustomStrategy, 5);
 ```
 
 In this example, the retry interval will be 1 second for the first attempt, 2 seconds for the second attempt, 3 seconds for the third attempt, 4 seconds for the fourth attempt, and 5 seconds for the fifth attempt.
-
-___
-
-## Examples T-SQL
-
-Here are a few examples of how you can use the Retry procedure to retry executing other procedures and functions in SQL.
-
-### Retrying the execution of a stored procedure
-
-You can use the Retry procedure to retry executing another stored procedure in case of failure. Here's an example:
-```tsql
-DECLARE @tsql NVARCHAR(MAX) = 'usp_SomeProcedure';
-EXEC Retry @tsql, 5, '00:00:10';
-```
-
-In this example, the Retry procedure is used to execute the usp_SomeProcedure stored procedure. The @tsql variable contains the T-SQL code to execute, which is passed as an argument to the Retry procedure. The second argument 5 is the number of retries, and the third argument '00:00:10' is the interval time between each retry.
-
-### Retrying the execution of a function
-
-You can also use the Retry procedure to retry executing a function in case of failure. Here's an example:
-```tsql
-DECLARE @tsql NVARCHAR(MAX) = 'SELECT dbo.fn_SomeFunction()';
-EXEC Retry @tsql, 5, '00:00:10';
-```
-
-In this example, the Retry procedure is used to execute the fn_SomeFunction function. The @tsql variable contains the T-SQL code to execute, which is passed as an argument to the Retry procedure. The second argument 5 is the number of retries, and the third argument '00:00:10' is the interval time between each retry.
-
-Note that in both examples, if all the retries fail, the original error message will be raised by the Retry procedure.
