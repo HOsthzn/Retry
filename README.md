@@ -15,7 +15,7 @@ ___
 > The concepts behind the provided Retry objects can easily be adapted to other programming languages and utilized in a similar fashion
 
 This is a utility library for retrying operations that can encounter transient faults. Retry operations can be
-configured to happen synchronously or asynchronously, and return either a void or a type result. The library also
+configured to happen synchronously or asynchronously, and return either a void or a type result. The code also
 provides interfaces for implementing custom retry strategies.
 
 ## Example usages
