@@ -1,140 +1,222 @@
-Public Module Retry
-    ''' <summary>
-    ''' Enumeration of the different retry strategies that can be used.
-    ''' </summary>
-    Public Enum RetryStrategy
-        FixedInterval
-        ExponentialBackOff
-    End Enum
+Imports System
+Imports System.Collections.Generic
+Imports System.Linq
+Imports System.Security.Cryptography
+Imports System.Threading
+Imports System.Threading.Tasks
 
-    ''' <summary>
-    ''' Retry the provided action with specified parameters.
-    ''' </summary>
-    ''' <param name="action">The action to retry.</param>
-    ''' <param name="retryInterval">The time interval to wait before retrying the action.</param>
-    ''' <param name="maxAttemptCount">The maximum number of attempts to retry the action (default is 3).</param>
-    ''' <param name="retryStrategy">The retry strategy to use (default is FixedInterval).</param>
-    Public Shared Sub Do(ByVal action As Action, ByVal retryInterval As TimeSpan, Optional ByVal maxAttemptCount As Integer = 3, Optional ByVal retryStrategy As RetryStrategy = RetryStrategy.FixedInterval)
-        ' List to keep track of exceptions that occur during retries.
-        Dim exceptions As New List(Of Exception)
+Public Interface IRetryStrategy
+    Function GetNextDelay(retryAttempt As Integer) As TimeSpan
+End Interface
 
-        ' Loop through the retry attempts.
-        For attempted As Integer = 0 To maxAttemptCount - 1
-            Try
-                ' Calculate the interval to wait before retrying.
-                Dim interval As TimeSpan = If(retryStrategy = RetryStrategy.ExponentialBackOff, TimeSpan.FromMilliseconds(Math.Pow(2, attempted) * retryInterval.TotalMilliseconds), retryInterval)
+Public Class FixedIntervalStrategy
+    Implements IRetryStrategy
 
-                ' Wait before retrying.
-                If attempted > 0 Then Task.Delay(interval).Wait()
+    Private ReadOnly _delay As TimeSpan
 
-                ' Attempt the action.
-                action()
-
-                ' If the action succeeds, return.
-                Return
-            Catch ex As Exception
-                ' Add the exception to the list of exceptions.
-                exceptions.Add(ex)
-
-                ' Write the exception to the console.
-                Console.WriteLine($"Failed to complete action, retrying in {retryInterval}: {ex.Message}")
-            End Try
-        Next
-
-        ' If all retry attempts fail, throw an AggregateException with all the individual exceptions.
-        Throw New AggregateException(exceptions)
+    Public Sub New(delay As TimeSpan)
+        If delay < TimeSpan.Zero Then Throw New ArgumentOutOfRangeException(NameOf(delay), "Delay can't be negative")
+        _delay = delay
     End Sub
 
-    ''' <summary>
-    ''' Retry the provided action with specified parameters.
-    ''' </summary>
-    ''' <typeparam name="TResult">The type of the result expected from the action to be retried.</typeparam>
-    ''' <param name="func">The action to be retried.</param>
-    ''' <param name="retryInterval">The time interval to wait before retrying the action.</param>
-    ''' <param name="maxAttemptCount">The maximum number of attempts to retry the action (default is 3).</param>
-    ''' <param name="retryStrategy">The retry strategy to use (default is FixedInterval).</param>
-    ''' <returns>
-    ''' The result of the action if it succeeds, otherwise an AggregateException with all the caught exceptions is
-    ''' thrown.
-    ''' </returns>
-    Public Shared Function Do(Of TResult)(func As Func(Of TResult), retryInterval As TimeSpan, Optional maxAttemptCount As Integer = 3, Optional retryStrategy As RetryStrategy = RetryStrategy.FixedInterval) As TResult
-        Dim exceptions As New List(Of Exception)()
-        For attempted As Integer = 0 To maxAttemptCount - 1
-            Try
-                Dim interval As TimeSpan = If(retryStrategy = RetryStrategy.ExponentialBackOff, TimeSpan.FromMilliseconds(Math.Pow(2, attempted) * retryInterval.TotalMilliseconds), retryInterval)
-                If attempted > 0 Then Task.Delay(interval).Wait()
-                Return func()
-            Catch ex As Exception
-                exceptions.Add(ex)
-                Console.WriteLine("Failed to complete action, retrying in {0}: {1}", retryInterval, ex.Message)
-            End Try
-        Next
-        Throw New AggregateException(exceptions)
+    Public Function GetNextDelay(retryAttempt As Integer) As TimeSpan Implements IRetryStrategy.GetNextDelay
+        Return _delay
+    End Function
+End Class
+
+Public Class ExponentialBackOffStrategy
+    Implements IRetryStrategy
+
+    Private ReadOnly _factor As Double
+    Private ReadOnly _initialDelay As TimeSpan
+    Private ReadOnly _maxDelay As TimeSpan
+
+    Public Sub New(initialDelay As TimeSpan, maxDelay As TimeSpan, Optional ByVal factor As Double = 2)
+        If initialDelay < TimeSpan.Zero Then _
+            Throw New ArgumentOutOfRangeException(NameOf(initialDelay), "InitialDelay can't be negative")
+
+        _initialDelay = initialDelay
+        _factor = factor
+        _maxDelay = maxDelay
+    End Sub
+
+    Public Function GetNextDelay(retryAttempt As Integer) As TimeSpan Implements IRetryStrategy.GetNextDelay
+        Dim delay As TimeSpan =
+                TimeSpan.FromTicks(Convert.ToInt64(_initialDelay.Ticks*Math.Pow(_factor, retryAttempt - 1)))
+
+        If delay > _maxDelay Then
+            Return _maxDelay
+        Else
+            Return delay
+        End If
+    End Function
+End Class
+
+Public Class ExponentialBackOffWithJitterStrategy
+    Implements IRetryStrategy
+
+    Private ReadOnly _factor As Double
+    Private ReadOnly _initialDelay As TimeSpan
+    Private ReadOnly _jitterFactor As Double
+
+    Private ReadOnly _
+        _random As RandomNumberGenerator =
+            RandomNumberGenerator.Create()
+
+    Public Sub New(initialDelay As TimeSpan, Optional ByVal factor As Double = 2,
+                   Optional ByVal jitterFactor As Double = 0.2)
+        If initialDelay < TimeSpan.Zero Then _
+            Throw New ArgumentOutOfRangeException(NameOf(initialDelay), "InitialDelay can't be negative")
+
+        _initialDelay = initialDelay
+        _factor = factor
+        _jitterFactor = jitterFactor
+    End Sub
+
+    Public Function GetNextDelay(retryAttempt As Integer) As TimeSpan Implements IRetryStrategy.GetNextDelay
+        Dim delay As TimeSpan =
+                TimeSpan.FromTicks(Convert.ToInt64(_initialDelay.Ticks*Math.Pow(_factor, retryAttempt - 1)))
+        Dim jitter As TimeSpan =
+                TimeSpan.FromMilliseconds(Math.Abs(delay.TotalMilliseconds*_jitterFactor*(NextDouble()*2 - 1)))
+
+        Return delay + jitter
     End Function
 
-    ''' <summary>
-    ''' Retry the asynchronous action
-    ''' </summary>
-    ''' <param name="action">The asynchronous action to retry</param>
-    ''' <param name="retryInterval">The interval to wait before retrying</param>
-    ''' <param name="maxAttemptCount">The maximum number of attempts to make</param>
-    ''' <param name="retryStrategy">The retry strategy to use</param>
-    ''' <returns></returns>
-    Public Shared Async Function DoAsync(action As Func(Of Task), retryInterval As TimeSpan, Optional maxAttemptCount As Integer = 3, Optional retryStrategy As RetryStrategy = RetryStrategy.FixedInterval) As Task
-        Dim exceptions As New List(Of Exception)()
-        For attempted As Integer = 0 To maxAttemptCount - 1
-            Try
-                Dim interval As TimeSpan = If(retryStrategy = RetryStrategy.ExponentialBackOff, TimeSpan.FromMilliseconds(Math.Pow(2, attempted) * retryInterval.TotalMilliseconds), retryInterval)
-                If attempted > 0 Then Await Task.Delay(interval)
-                Await action()
-                Return
-            Catch ex As Exception
-                exceptions.Add(ex)
-                Console.WriteLine("Failed to complete action, retrying in {0}: {1}", retryInterval, ex.Message)
-            End Try
-        Next
-        Throw New AggregateException(exceptions)
+    Private Function NextDouble() As Double
+        Dim bytes(7) As Byte ' Specify an array of 8 bytes
+        _random.GetBytes(bytes)
+
+        ' Use the BitConverter.ToUInt64 method to convert the byte array to an UInt64
+        Dim ul As ULong = BitConverter.ToUInt64(bytes, 0) >> 11
+
+        ' Convert the ul value to a Double for the division operation
+        Return ul/(CDbl(ULong.MaxValue >> 11))
+    End Function
+End Class
+
+Public NotInheritable Class Retry
+    Public Shared Async Function DoAsync (Of TResult)(action As Func(Of CancellationToken, Task(Of TResult)),
+                                                      retryCount As Integer,
+                                                      Optional retryStrategy As IRetryStrategy = Nothing,
+                                                      Optional cancellationToken As CancellationToken = Nothing,
+                                                      Optional shouldRetryOnExceptions As _
+                                                         IEnumerable(Of Func(Of Exception, Boolean)) = Nothing,
+                                                      Optional shouldRetryOnResults As _
+                                                         IEnumerable(Of Func(Of TResult, Boolean)) = Nothing,
+                                                      Optional retriableExceptions As Type() = Nothing) _
+        As Task(Of TResult)
+        If action Is Nothing Then Throw New ArgumentNullException(NameOf(action))
+        If retryCount < 0 Then Throw New ArgumentOutOfRangeException(NameOf(retryCount))
+
+        If retryStrategy Is Nothing Then retryStrategy = New FixedIntervalStrategy(TimeSpan.FromSeconds(1))
+
+        Return _
+            Await _
+                RetryAction(action, retryStrategy, retryCount, cancellationToken, shouldRetryOnExceptions,
+                            shouldRetryOnResults, retriableExceptions)
     End Function
 
-    ''' <summary>
-    ''' Retry the asynchronous action
-    ''' </summary>
-    ''' <typeparam name="TResult">The result type of the asynchronous action</typeparam>
-    ''' <param name="func">The asynchronous action to retry</param>
-    ''' <param name="retryInterval">The interval to wait before retrying</param>
-    ''' <param name="maxAttemptCount">The maximum number of attempts to make</param>
-    ''' <param name="retryStrategy">The retry strategy to use</param>
-    ''' <returns>The result of the function if it executes successfully, or throws an `AggregateException` if all retries fail.</returns>
-    Public Shared Async Function DoAsync(Of TResult)(ByVal func As Func(Of Task(Of TResult)),
-    ByVal retryInterval As TimeSpan,
-    Optional ByVal maxAttemptCount As Integer = 3,
-    Optional ByVal retryStrategy As RetryStrategy = RetryStrategy.FixedInterval) As Task(Of TResult)
+    Private Shared Async Function RetryAction (Of TResult)(action As Func(Of CancellationToken, Task(Of TResult)),
+                                                           retryStrategy As IRetryStrategy, retryCount As Integer,
+                                                           cancellationToken As CancellationToken,
+                                                           Optional shouldRetryOnExceptions As _
+                                                              IEnumerable(Of Func(Of Exception, Boolean)) = Nothing,
+                                                           Optional shouldRetryOnResults As _
+                                                              IEnumerable(Of Func(Of TResult, Boolean)) = Nothing,
+                                                           Optional retriableExceptions As Type() = Nothing) _
+        As Task(Of TResult)
+        If cancellationToken.IsCancellationRequested Then Throw New TaskCanceledException()
 
-        ' A list to store all exceptions thrown by the function
         Dim exceptions As New List(Of Exception)
 
-        ' Loop for the maximum number of attempts
-        For attempted As Integer = 0 To maxAttemptCount - 1
+        For retry = 0 To retryCount
+            cancellationToken.ThrowIfCancellationRequested()
+
+            If retry > 0 Then
+                Dim delay As TimeSpan = retryStrategy.GetNextDelay(retry)
+                If delay < TimeSpan.Zero Then _
+                    Throw New InvalidOperationException("GetNextDelay must not return a negative delay")
+                Await Task.Delay(delay, cancellationToken)
+            End If
+
             Try
-                ' Determine the interval to wait before retrying based on the retry strategy
-                Dim interval As TimeSpan = If(retryStrategy = RetryStrategy.ExponentialBackOff,
-                                             TimeSpan.FromMilliseconds(Math.Pow(2, attempted) * retryInterval.TotalMilliseconds),
-                                             retryInterval)
+                Dim result As TResult = Await action(cancellationToken)
+                If _
+                    Not _
+                    (shouldRetryOnResults Is Nothing OrElse
+                     Not shouldRetryOnResults.Any(Function(predicate) predicate(result))) Then
+                    exceptions.Add(New Exception("Unexpected result"))
+                    Continue For
+                End If
 
-                ' Wait for the interval if this is not the first attempt
-                If attempted > 0 Then Await Task.Delay(interval)
-
-                ' Try to execute the function
-                Return Await func()
-            Catch ex As Exception
-                ' Add the exception to the list and log a message indicating that the function failed and will be retried
+                Return result
+            Catch ex As Exception When _
+                (If(retriableExceptions Is Nothing, True, retriableExceptions.Contains(ex.GetType())))
+                If _
+                    Not _
+                    (shouldRetryOnExceptions Is Nothing OrElse
+                     shouldRetryOnExceptions.Any(Function(predicate) predicate(ex))) Then Throw
                 exceptions.Add(ex)
-                Console.WriteLine("Failed to complete action, retrying in " & retryInterval & ": " & ex.ToString())
             End Try
         Next
 
-        ' If all retries fail, throw an `AggregateException` containing all exceptions thrown by the function
         Throw New AggregateException(exceptions)
     End Function
 
-End Module
+    Public Shared Function [Do] (Of TResult)(action As Func(Of TResult), retryCount As Integer,
+                                             Optional retryStrategy As IRetryStrategy = Nothing,
+                                             Optional shouldRetryOnExceptions As _
+                                                IEnumerable(Of Func(Of Exception, Boolean)) = Nothing,
+                                             Optional shouldRetryOnResults As IEnumerable(Of Func(Of TResult, Boolean)) _
+                                                = Nothing, Optional retriableExceptions As Type() = Nothing) As TResult
+        If action Is Nothing Then Throw New ArgumentNullException(NameOf(action))
+        If retryCount < 0 Then Throw New ArgumentOutOfRangeException(NameOf(retryCount))
+
+        If retryStrategy Is Nothing Then retryStrategy = New FixedIntervalStrategy(TimeSpan.FromSeconds(1))
+
+        Return _
+            RetryAction(action, retryStrategy, retryCount, shouldRetryOnExceptions, shouldRetryOnResults,
+                        retriableExceptions)
+    End Function
+
+    Private Shared Function RetryAction (Of TResult)(action As Func(Of TResult), retryStrategy As IRetryStrategy,
+                                                     retryCount As Integer,
+                                                     Optional shouldRetryOnExceptions As _
+                                                        IEnumerable(Of Func(Of Exception, Boolean)) = Nothing,
+                                                     Optional shouldRetryOnResults As _
+                                                        IEnumerable(Of Func(Of TResult, Boolean)) = Nothing,
+                                                     Optional retriableExceptions As Type() = Nothing) As TResult
+        Dim exceptions As New List(Of Exception)
+
+        For retry = 0 To retryCount
+            If retry > 0 Then
+                Dim delay As TimeSpan = retryStrategy.GetNextDelay(retry)
+                If delay < TimeSpan.Zero Then _
+                    Throw New InvalidOperationException("GetNextDelay must not return a negative delay")
+                Task.Delay(delay).Wait()
+            End If
+
+            Try
+                Dim result As TResult = action()
+                If _
+                    Not _
+                    (shouldRetryOnResults Is Nothing OrElse
+                     Not shouldRetryOnResults.Any(Function(predicate) predicate(result))) Then
+                    exceptions.Add(New Exception("Unexpected result"))
+                    Continue For
+                End If
+
+                Return result
+            Catch ex As Exception When _
+                (If(retriableExceptions Is Nothing, True, retriableExceptions.Contains(ex.GetType())))
+                If _
+                    Not _
+                    (shouldRetryOnExceptions Is Nothing OrElse
+                     shouldRetryOnExceptions.Any(Function(predicate) predicate(ex))) Then Throw
+                exceptions.Add(ex)
+            End Try
+        Next
+
+        Throw New AggregateException(exceptions)
+    End Function
+End Class
