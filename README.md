@@ -24,6 +24,7 @@ Let's illustrate the most common usage scenarios.
 
 **1. Retrying asynchronous operations returning `Task<TResult>`:**
 
+C#:
 ```csharp
 Func<CancellationToken, Task<int>> action = async (token) => 
 {
@@ -34,6 +35,7 @@ Func<CancellationToken, Task<int>> action = async (token) =>
 var result = await Retry.DoAsync(action, 3));
 ```
 
+VB.NET:
 ```vb
 Dim action As Func(Of CancellationToken, Task(Of Integer))
 action = Async Function(token As CancellationToken) As Task(Of Integer)
@@ -50,6 +52,7 @@ In this case, the action is retried 3 times if it fails, using a fixed delay of 
  
 **2. Retrying synchronous operations returning `TResult`:**
 
+C#:
 ```csharp
 Func<int> action = () => 
 {
@@ -60,6 +63,7 @@ Func<int> action = () =>
 var result = Retry.Do(action, 3, new FixedIntervalStrategy(TimeSpan.FromSeconds(3)));
 ```
 
+VB.NET:
 ```vb
 Dim action As Func(Of Integer)
 action = Function()
@@ -75,6 +79,7 @@ In this case, the action is retried 3 times if it fails, using a fixed delay of 
 
 **3. For functions that return `void`:**
 
+C#:
 ```csharp
 Action action = () => 
 {
@@ -85,6 +90,7 @@ Action action = () =>
 Retry.Do(action, 3, new FixedIntervalStrategy(TimeSpan.FromSeconds(3)));
 ```
 
+VB.NET:
 ```vb
 Dim action As Action
 action = Sub()
@@ -103,6 +109,7 @@ You can also implement custom retry strategies by implementing the `IRetryStrate
 
 For instance, an exponential back-off strategy could be implemented like below:
 
+C#:
 ```csharp
 public class CustomExponentialBackOffStrategy: IRetryStrategy
 {
@@ -114,6 +121,7 @@ public class CustomExponentialBackOffStrategy: IRetryStrategy
 }
 ```
 
+VB.NET:
 ```vb
 Public Class CustomExponentialBackOffStrategy
     Implements IRetryStrategy
@@ -127,8 +135,7 @@ End Class
 
 Then use your custom strategy in the retry operation:
 
-
-
+C#:
 ```csharp
 Func<int> action = () => 
 {
@@ -139,6 +146,7 @@ Func<int> action = () =>
 var result = Retry.Do(action, 3, new CustomExponentialBackOffStrategy());
 ```
 
+VB.NET:
 ```vb
 Dim action As Func(Of Integer)
 action = Function()
@@ -155,6 +163,7 @@ Dim result = Retry.Do(action, 3, New CustomExponentialBackOffStrategy())
 You can pass certain conditions that an exception or result must meet in order to trigger a retry. The updated library
 now allows this to be specified as a collection of Func delegates and hence can accept multiple conditions:
 
+C#:
 ```csharp
 IEnumerable<Func<Exception, bool>> shouldRetryOnExceptions = new List<Func<Exception, bool>> 
 {
@@ -183,6 +192,7 @@ var result = Retry.Do(
     shouldRetryOnResults);
 ```
 
+VB.NET:
 ```vb
 Dim shouldRetryOnExceptions As IEnumerable(Of Func(Of Exception, Boolean)) = New List(Of Func(Of Exception, Boolean)) From {
     Function(ex) TypeOf ex Is TimeoutException, ' retry on timeout exceptions
@@ -208,6 +218,7 @@ In this case, retry will occur if any of the specified conditions in exception c
 
 ## ExponentialBackOffWithJitterStrategy example
 
+C#:
 ```csharp
 Func<CancellationToken, Task<int>> action = async (token) =>
 {
@@ -227,6 +238,7 @@ var result = await Retry.DoAsync(
 );
 ```
 
+VB.NET:
 ```vb
 Dim action As Func(Of CancellationToken, Task(Of Integer))
 action = Async Function(token As CancellationToken) As Task(Of Integer)
