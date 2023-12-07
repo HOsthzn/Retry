@@ -34,9 +34,20 @@ Func<CancellationToken, Task<int>> action = async (token) =>
 var result = await Retry.DoAsync(action, 3));
 ```
 
+```vb
+Dim action As Func(Of CancellationToken, Task(Of Integer))
+action = Async Function(token As CancellationToken) As Task(Of Integer)
+    ' some asynchronous operation that could fail
+    ' replace with actual implementation
+    Return Await Task.FromResult(1)
+End Function
+
+Dim result = Await Retry.DoAsync(action, 3)
+```
+
 In this case, the action is retried 3 times if it fails, using a fixed delay of 1 second between each retry.
 > Note: the FixedIntervalStrategy with a delay of 1 second is used by default.
-
+ 
 **2. Retrying synchronous operations returning `TResult`:**
 
 ```csharp
@@ -47,6 +58,17 @@ Func<int> action = () =>
     return 1;
 };
 var result = Retry.Do(action, 3, new FixedIntervalStrategy(TimeSpan.FromSeconds(3)));
+```
+
+```vb
+Dim action As Func(Of Integer)
+action = Function()
+    ' some synchronous operation that could fail
+    ' replace with actual implementation
+    Return 1
+End Function
+
+Dim result = Retry.Do(action, 3, New FixedIntervalStrategy(TimeSpan.FromSeconds(3)))
 ```
 
 In this case, the action is retried 3 times if it fails, using a fixed delay of 3 second between each retry.
@@ -61,6 +83,16 @@ Action action = () =>
 };
 
 Retry.Do(action, 3, new FixedIntervalStrategy(TimeSpan.FromSeconds(3)));
+```
+
+```vb
+Dim action As Action
+action = Sub()
+    ' some operation that could fail
+    ' replace with actual implementation
+End Sub
+
+Retry.Do(action, 3, New FixedIntervalStrategy(TimeSpan.FromSeconds(3)))
 ```
 
 In this case, the action is retried 3 times if it fails, using a fixed delay of 3 second between each retry.
@@ -82,7 +114,20 @@ public class CustomExponentialBackOffStrategy: IRetryStrategy
 }
 ```
 
+```vb
+Public Class CustomExponentialBackOffStrategy
+    Implements IRetryStrategy
+
+    Public Function GetNextDelay(retryAttempt As Integer) As TimeSpan Implements IRetryStrategy.GetNextDelay
+        Dim delay = TimeSpan.FromSeconds(Math.Pow(2, retryAttempt))
+        Return delay
+    End Function
+End Class
+```
+
 Then use your custom strategy in the retry operation:
+
+
 
 ```csharp
 Func<int> action = () => 
@@ -92,6 +137,17 @@ Func<int> action = () =>
     return 1;
 };
 var result = Retry.Do(action, 3, new CustomExponentialBackOffStrategy());
+```
+
+```vb
+Dim action As Func(Of Integer)
+action = Function()
+    ' some operation that could fail
+    ' replace with actual implementation
+    Return 1
+End Function
+
+Dim result = Retry.Do(action, 3, New CustomExponentialBackOffStrategy())
 ```
 
 ## Configuring exception handling
@@ -127,6 +183,27 @@ var result = Retry.Do(
     shouldRetryOnResults);
 ```
 
+```vb
+Dim shouldRetryOnExceptions As IEnumerable(Of Func(Of Exception, Boolean)) = New List(Of Func(Of Exception, Boolean)) From {
+    Function(ex) TypeOf ex Is TimeoutException, ' retry on timeout exceptions
+    Function(ex) TypeOf ex Is NetworkException ' retry on network exceptions
+}
+
+Dim shouldRetryOnResults As IEnumerable(Of Func(Of String, Boolean)) = New List(Of Func(Of String, Boolean)) From {
+    Function(result) String.IsNullOrEmpty(result), ' retry if string is empty or null
+    Function(result) result.Length < 10 ' retry if string length is less than 10
+}
+
+Dim action As Func(Of Integer)
+action = Function()
+    ' some operation that could fail
+    ' replace with actual implementation
+    Return 1
+End Function
+
+Dim result = Retry.Do(action, 3, New FixedIntervalStrategy(TimeSpan.FromSeconds(1)), shouldRetryOnExceptions, shouldRetryOnResults)
+```
+
 In this case, retry will occur if any of the specified conditions in exception checks or result checks is met.
 
 ## ExponentialBackOffWithJitterStrategy example
@@ -148,6 +225,19 @@ var result = await Retry.DoAsync(
     cancellationToken: CancellationToken.None,
     shouldRetryOnException: ex => ex is TimeoutException
 );
+```
+
+```vb
+Dim action As Func(Of CancellationToken, Task(Of Integer))
+action = Async Function(token As CancellationToken) As Task(Of Integer)
+    ' some asynchronous operation that could fail
+    ' replace with actual implementation
+    Return Await Task.FromResult(1)
+End Function
+
+Dim jitterStrategy = New ExponentialBackOffWithJitterStrategy(TimeSpan.FromSeconds(1))
+
+Dim result = Await Retry.DoAsync(action:=action, retryCount:=3, retryStrategy:=jitterStrategy, cancellationToken:=CancellationToken.None, shouldRetryOnException:=Function(ex) TypeOf ex Is TimeoutException)
 ```
 
 In this example, the action is an asynchronous operation that is retried 3 times if it fails. The delay between each
