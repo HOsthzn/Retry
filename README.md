@@ -9,10 +9,10 @@ The specific implementation of a retry strategy will depend on the programming l
 In conclusion, implementing a retry strategy is an important step in making your application more reliable and resilient in the face of transient failures. By taking the time to design and implement a retry strategy, you can help ensure the continued availability and success of your application and protect your users from the negative consequences of failures.
 
 ___
-
 # Retry Library Documentation
 
-> The concepts behind the provided Retry objects can easily be adapted to other programming languages and utilized in a similar fashion
+> The concepts behind the provided Retry objects can easily be adapted to other programming languages and utilized in a
+> similar fashion
 
 This is a utility library for retrying operations that can encounter transient faults. Retry operations can be
 configured to happen synchronously or asynchronously, and return either a void or a type result. The code also
@@ -25,6 +25,7 @@ Let's illustrate the most common usage scenarios.
 **1. Retrying asynchronous operations returning `Task<TResult>`:**
 
 C#:
+
 ```csharp
 Func<CancellationToken, Task<int>> action = async (token) => 
 {
@@ -36,6 +37,7 @@ var result = await Retry.DoAsync(action, 3));
 ```
 
 VB.NET:
+
 ```vb
 Dim action As Func(Of CancellationToken, Task(Of Integer))
 action = Async Function(token As CancellationToken) As Task(Of Integer)
@@ -49,10 +51,11 @@ Dim result = Await Retry.DoAsync(action, 3)
 
 In this case, the action is retried 3 times if it fails, using a fixed delay of 1 second between each retry.
 > Note: the FixedIntervalStrategy with a delay of 1 second is used by default.
- 
+
 **2. Retrying synchronous operations returning `TResult`:**
 
 C#:
+
 ```csharp
 Func<int> action = () => 
 {
@@ -64,6 +67,7 @@ var result = Retry.Do(action, 3, new FixedIntervalStrategy(TimeSpan.FromSeconds(
 ```
 
 VB.NET:
+
 ```vb
 Dim action As Func(Of Integer)
 action = Function()
@@ -80,6 +84,7 @@ In this case, the action is retried 3 times if it fails, using a fixed delay of 
 **3. For functions that return `void`:**
 
 C#:
+
 ```csharp
 Action action = () => 
 {
@@ -91,6 +96,7 @@ Retry.Do(action, 3, new FixedIntervalStrategy(TimeSpan.FromSeconds(3)));
 ```
 
 VB.NET:
+
 ```vb
 Dim action As Action
 action = Sub()
@@ -110,6 +116,7 @@ You can also implement custom retry strategies by implementing the `IRetryStrate
 For instance, an exponential back-off strategy could be implemented like below:
 
 C#:
+
 ```csharp
 public class CustomExponentialBackOffStrategy: IRetryStrategy
 {
@@ -122,6 +129,7 @@ public class CustomExponentialBackOffStrategy: IRetryStrategy
 ```
 
 VB.NET:
+
 ```vb
 Public Class CustomExponentialBackOffStrategy
     Implements IRetryStrategy
@@ -136,6 +144,7 @@ End Class
 Then use your custom strategy in the retry operation:
 
 C#:
+
 ```csharp
 Func<int> action = () => 
 {
@@ -147,6 +156,7 @@ var result = Retry.Do(action, 3, new CustomExponentialBackOffStrategy());
 ```
 
 VB.NET:
+
 ```vb
 Dim action As Func(Of Integer)
 action = Function()
@@ -164,6 +174,7 @@ You can pass certain conditions that an exception or result must meet in order t
 now allows this to be specified as a collection of Func delegates and hence can accept multiple conditions:
 
 C#:
+
 ```csharp
 IEnumerable<Func<Exception, bool>> shouldRetryOnExceptions = new List<Func<Exception, bool>> 
 {
@@ -193,6 +204,7 @@ var result = Retry.Do(
 ```
 
 VB.NET:
+
 ```vb
 Dim shouldRetryOnExceptions As IEnumerable(Of Func(Of Exception, Boolean)) = New List(Of Func(Of Exception, Boolean)) From {
     Function(ex) TypeOf ex Is TimeoutException, ' retry on timeout exceptions
@@ -219,6 +231,7 @@ In this case, retry will occur if any of the specified conditions in exception c
 ## ExponentialBackOffWithJitterStrategy example
 
 C#:
+
 ```csharp
 Func<CancellationToken, Task<int>> action = async (token) =>
 {
@@ -239,6 +252,7 @@ var result = await Retry.DoAsync(
 ```
 
 VB.NET:
+
 ```vb
 Dim action As Func(Of CancellationToken, Task(Of Integer))
 action = Async Function(token As CancellationToken) As Task(Of Integer)
@@ -259,43 +273,57 @@ If a TimeoutException is thrown, the operation would be retried based on the ret
 
 ___
 
-## Examples JavaScript
-> for this code to work in JavaScript you will need to use ES6
+## Examples in JavaScript
 
-The Retry object provides two functions to perform retries with either a regular or an async function - attempt & attemptAsync. In this section, we will show you how to use these functions to perform retries.
+For JavaScript ES6:
 
-### Performing Retries with the 'Retry.attempt' Function
-The Retry.attempt function is used to perform retries with a regular function. It takes four parameters:
+The Retry object in JavaScript provides two functions, 'attempt' and 'attemptAsync', that perform retries, each with a
+regular or an async function. The following demonstrates how to use these functions:
 
-- action: The function to be executed.
-- retryInterval: The interval between retries, in milliseconds.
-- maxAttempts: The maximum number of attempts (defaults to 3).
-- strategy: The strategy to use for retrying (defaults to Retry.Strategy.FIXED_INTERVAL).
-Here is an example of how to use the Retry.attempt function to perform retries:
+1. ***Retrying with the 'Retry.attempt' Function:*** This function performs retries with regular functions. It has the
+   following parameters:
+    - `action`: This is the function to be executed.
+    - `retryInterval`: This is the interval between retries in milliseconds.
+    - `maxAttempts`: This specifies the maximum number of attempts and defaults to 3.
+    - `strategy`: This specifies the strategy for retrying operations and defaults to Retry.Strategy.FIXED_INTERVAL.
 
 ```javascript
-function myAction() { // Your logic here }
+function myAction() {
+    // Your logic here 
+}
+
 Retry.attempt(myAction, 1000, 5, Retry.Strategy.EXPONENTIAL_BACKOFF);
 ```
 
-In this example, myAction will be executed up to five times, with a retry interval of 1 second for the first attempt, 2 seconds for the second attempt, 4 seconds for the third attempt, 8 seconds for the fourth attempt, and 16 seconds for the fifth attempt. If all attempts fail, an error will be thrown.
+In this example, `myAction` is executed up to five times. If the function fails five times, it throws an error. The
+retry interval in this case is 1 second for the first attempt, 2 seconds for the second attempt, 4 seconds for the third
+attempt, 8 seconds for the fourth attempt, and 16 seconds for the fifth attempt.
 
-### Performing Retries with the Retry.attemptAsync Function
-The Retry.attemptAsync function is used to perform retries with an async function. It takes the same parameters as the Retry.attempt function:
+2. ***Retrying with the Retry.attemptAsync Function:*** This function works with async functions and uses the same
+   parameters as the `Retry.attempt` function.
 
 ```javascript
-async function myAsyncAction() { // Your logic here }
+async function myAsyncAction() {
+    // Your logic here 
+}
+
 await Retry.attemptAsync(myAsyncAction, 1000, 5, Retry.Strategy.EXPONENTIAL_BACKOFF);
 ```
 
-In this example, myAsyncAction will be executed up to five times, with a retry interval of 1 second for the first attempt, 2 seconds for the second attempt, 4 seconds for the third attempt, 8 seconds for the fourth attempt, and 16 seconds for the fifth attempt. If all attempts fail, an error will be thrown.
+In this example, `myAsyncAction` is executed up to five times. If the function fails five times, it throws an error. The
+retry interval is 1 second for the first attempt, 2 seconds for the second attempt, 4 seconds for the third attempt, 8
+seconds for the fourth attempt, and 16 seconds for the fifth attempt.
 
-### Setting a Custom Retry Strategy
-You can set a custom retry strategy by creating a new function that calculates the retry interval and passing it to the 'Retry.attempt' or 'Retry.attemptAsync' function. For example:
+3. ***Setting a Custom Retry Strategy:*** For a custom retry strategy, create a new function that calculates the retry
+   interval, and pass the function to the `Retry.attempt` or `Retry.attemptAsync` function.
 
 ```javascript
-function myCustomStrategy(attempted) { return attempted * 1000; }
+function myCustomStrategy(attempted) {
+    return attempted * 1000;
+}
+
 Retry.attempt(myAction, myCustomStrategy, 5);
 ```
 
-In this example, the retry interval will be 1 second for the first attempt, 2 seconds for the second attempt, 3 seconds for the third attempt, 4 seconds for the fourth attempt, and 5 seconds for the fifth attempt.
+In this case, the retry interval will be 1 second for the first attempt, 2 seconds for the second attempt, 3 seconds for
+the third attempt, 4 seconds for the fourth attempt, and 5 seconds for the fifth attempt.
