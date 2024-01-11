@@ -189,7 +189,10 @@ public static class Retry
         , Type[ ] retriableExceptions = null )
     {
         ArgumentNullException.ThrowIfNull( action );
-        ArgumentOutOfRangeException.ThrowIfNegative( retryCount );
+       if (retryCount < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(retryCount), "Value cannot be negative");
+        }
         retryStrategy ??= new FixedIntervalStrategy( TimeSpan.FromSeconds( 1 ) );
         return await RetryAction(
             action
@@ -277,7 +280,10 @@ public static class Retry
         , Type[ ] retriableExceptions = null )
     {
         ArgumentNullException.ThrowIfNull( action );
-        ArgumentOutOfRangeException.ThrowIfNegative( retryCount );
+       if (retryCount < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(retryCount), "Value cannot be negative");
+        }
 
         retryStrategy ??= new FixedIntervalStrategy( TimeSpan.FromSeconds( 1 ) );
 
