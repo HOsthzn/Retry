@@ -1,14 +1,3 @@
-A retry strategy is a technique for handling transient failures, which are temporary and typically resolve themselves without any intervention. These types of failures can occur for various reasons, including network issues, resource contention, or temporary unavailability of an external service.
-
-As a developer, it's important to implement a retry strategy in your code because it can help ensure the reliability and availability of your application. Without a retry strategy, your application may fail when it encounters a transient failure and may not recover without manual intervention. This can result in downtime or data loss, leading to a negative user experience and potentially damaging your reputation.
-
-By implementing a retry strategy, you can mitigate the impact of transient failures by automatically retrying failed operations, thus increasing the chances of success on subsequent attempts. This can help to ensure that your application continues to run smoothly and that your users receive the expected level of service, even in the face of temporary failures.
-
-The specific implementation of a retry strategy will depend on the programming language and technology you're using, as well as the requirements of your specific application. Common approaches include linear backoff, exponential backoff, and fixed retry count, among others.
-
-In conclusion, implementing a retry strategy is an important step in making your application more reliable and resilient in the face of transient failures. By taking the time to design and implement a retry strategy, you can help ensure the continued availability and success of your application and protect your users from the negative consequences of failures.
-
-___
 # Retry Library Documentation
 
 > The concepts behind the provided Retry objects can easily be adapted to other programming languages and utilized in a
