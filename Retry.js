@@ -19,15 +19,20 @@ const Retry = {
         // The wait times follows a gamma distribution
         GAMMA: "Gamma",
     },
-    // Function to calculate the retry interval based on the strategy used
-    getRetryInterval: (attempted, retryInterval, strategy) => {
+    // Function to calculate the retry interval based on the strategy used (in ms)
+    getRetryInterval: (attempted, retryInterval, strategy, maxDelay = Infinity) => {
+        if (retryInterval <= 0) throw new Error("retryInterval must be positive");
+        let interval;
         switch (strategy) {
             case Retry.Strategy.EXPONENTIAL_BACKOFF:
-                return retryInterval * Math.pow(2, attempted);
+                interval = retryInterval * Math.pow(2, attempted);
+                break;
             case Retry.Strategy.RANDOM:
-                return Math.floor(Math.random() * (retryInterval * Math.pow(2, attempted)));
+                interval = Math.floor(Math.random() * (retryInterval * Math.pow(2, attempted)));
+                break;
             case Retry.Strategy.INCREMENTAL:
-                return retryInterval * attempted;
+                interval = retryInterval * attempted;
+                break;
             case Retry.Strategy.FIBONACCI:
                 const fib = (function () {
                     let fibCache = [0, 1];
@@ -35,61 +40,94 @@ const Retry = {
                         if (fibCache[n] === undefined) {
                             fibCache[n] = fib(n - 1) + fib(n - 2);
                         }
-                        return fibCache[n];
+                        return Math.min(fibCache[n], Number.MAX_SAFE_INTEGER / retryInterval); // Cap to prevent overflow
                     }
                 })();
-                return retryInterval * fib(attempted);
+                interval = retryInterval * fib(attempted);
+                break;
             case Retry.Strategy.PROGRESSION:
-                return retryInterval + (attempted * attempted);
+                interval = retryInterval + (attempted * attempted);
+                break;
             case Retry.Strategy.JITTER:
-                return retryInterval * Math.pow(2, attempted) * Math.random();
+                interval = retryInterval * Math.pow(2, attempted) * Math.random();
+                break;
             case Retry.Strategy.GAMMA:
-                return retryInterval * (attempted * Math.log(attempted));
+                if (attempted === 0) return retryInterval; // Avoid log(0)
+                interval = retryInterval * (attempted * Math.log(attempted));
+                break;
             default:
-                return retryInterval;
+                interval = retryInterval;
         }
+        return Math.min(interval, maxDelay); // Cap with optional maxDelay
+    },
+    // Synchronous sleep (busy wait) - WARNING: CPU-intensive; prefer attemptAsync for non-blocking delays
+    sleep: (ms) => {
+        const start = Date.now();
+        while (Date.now() - start < ms) {}
     },
     // Function to attempt the provided action and retry if necessary using the prescribed strategy
+    // Now handles if action is async (returns Promise)
     attempt: (action, retryInterval, maxAttempts = 3, strategy = Retry.Strategy.FIXED_INTERVAL,
-              logger                                           = console.log) => {
-        // Array to store any exceptions encountered during attempt
+              logger = console.log, maxDelay = Infinity) => {
+        if (maxAttempts <= 0) throw new Error("maxAttempts must be positive");
         let exceptions = [];
         for (let attempted = 0; attempted < maxAttempts; attempted++) {
             try {
-                return action(); // If successful, return the result of the action.
+                const result = action();
+                if (result instanceof Promise) {
+                    // If action is async, await it synchronously (blocks thread)
+                    let resolved;
+                    result.then(res => resolved = res).catch(err => { throw err; });
+                    while (resolved === undefined) Retry.sleep(1); // Busy wait for promise (not ideal)
+                    return resolved;
+                }
+                return result; // Sync success
             } catch (ex) {
                 exceptions.push(ex);
                 if (attempted === maxAttempts - 1) {
                     logger('All attempts failed. Exceptions:', exceptions);
-                    throw ex; // If all attempts fail, throw the latest exception.
+                    if (typeof AggregateError !== 'undefined') {
+                        throw new AggregateError(exceptions, `All attempts failed after ${maxAttempts} retries`);
+                    } else {
+                        throw ex; // Fallback to last error
+                    }
+                }
+                if (attempted > 0) {
+                    const delay = Retry.getRetryInterval(attempted, retryInterval, strategy, maxDelay);
+                    logger(`Failed, retrying in ${delay}ms: ${ex}`);
+                    Retry.sleep(delay); // Add delay (busy wait)
                 }
             }
         }
     },
     // Function to attempt the provided action in a non-blocking(async) manner and retry if necessary using the prescribed strategy
     attemptAsync: async (action, retryInterval, maxAttempts = 3, strategy = Retry.Strategy.FIXED_INTERVAL,
-                         logger                                           = console.log) => {
-        // Array to store any exceptions encountered during attempt
+                         logger = console.log, maxDelay = Infinity) => {
+        if (maxAttempts <= 0) throw new Error("maxAttempts must be positive");
         let exceptions = [];
         for (let attempted = 0; attempted < maxAttempts; attempted++) {
             try {
                 if (attempted > 0) {
                     // If this is not the first attempt, wait for a certain duration based on the retry strategy
-                    await new Promise(
-                        resolve => setTimeout(resolve, Retry.getRetryInterval(attempted, retryInterval, strategy)));
+                    const delay = Retry.getRetryInterval(attempted, retryInterval, strategy, maxDelay);
+                    await new Promise(resolve => setTimeout(resolve, delay));
                 }
                 return await action(); // If successful, return the result of the action.
             } catch (ex) {
                 exceptions.push(ex);
                 if (attempted === maxAttempts - 1) {
                     logger('All attempts failed. Exceptions:', exceptions);
-                    // If all attempts fail, throw a new error stating the failure.
-                    throw new Error(`All attempts failed after ${maxAttempts} retries`);
+                    // If all attempts fail, throw aggregated errors
+                    if (typeof AggregateError !== 'undefined') {
+                        throw new AggregateError(exceptions, `All attempts failed after ${maxAttempts} retries`);
+                    } else {
+                        throw new Error(`All attempts failed after ${maxAttempts} retries`);
+                    }
                 }
                 else {
                     // Log the exception and the time to next retry
-                    logger(`Failed to complete action, retrying in ${Retry.getRetryInterval(attempted, retryInterval,
-                                                                                            strategy)}: ${ex}`);
+                    const delay = Retry.getRetryInterval(attempted, retryInterval, strategy, maxDelay);
+                    logger(`Failed to complete action, retrying in ${delay}ms: ${ex}`);
                 }
             }
         }
