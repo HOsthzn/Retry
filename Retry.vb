@@ -72,8 +72,15 @@ Public NotInheritable Class ExponentialBackOffStrategy
     End Sub
 
     Public Function GetNextDelay(retryAttempt As Integer) As TimeSpan Implements IRetryStrategy.GetNextDelay
-        Dim delayTicks = CLng(_initialDelay.Ticks * Math.Pow(_factor, retryAttempt - 1))
-        Return If(TimeSpan.FromTicks(delayTicks) > _maxDelay, _maxDelay, TimeSpan.FromTicks(delayTicks))
+        Try
+            Checked
+                Dim delayTicks = CLng(_initialDelay.Ticks * Math.Pow(_factor, retryAttempt - 1)) ' Added overflow check
+            End Checked
+        Catch ex As OverflowException
+            Return _maxDelay ' Cap on overflow
+        End Try
+        Dim delay = TimeSpan.FromTicks(delayTicks)
+        Return If(delay > _maxDelay, _maxDelay, delay)
     End Function
 End Class
 
@@ -86,37 +93,57 @@ Public NotInheritable Class ExponentialBackOffWithJitterStrategy
     Private ReadOnly _factor As Double
     Private ReadOnly _initialDelay As TimeSpan
     Private ReadOnly _jitterFactor As Double
+    Private ReadOnly _maxDelay As TimeSpan ' Added maxDelay for consistency and to cap growth
     Private ReadOnly _random As RandomNumberGenerator = RandomNumberGenerator.Create()
 
     ''' <summary>
     ''' Initializes a new instance of the <see cref="ExponentialBackOffWithJitterStrategy"/> class.
     ''' </summary>
     ''' <param name="initialDelay">The initial delay before the first retry.</param>
+    ''' <param name="maxDelay">The maximum delay between retries.</param>
     ''' <param name="factor">The multiplier for delay increase per retry (default is 2).</param>
     ''' <param name="jitterFactor">The factor for applying jitter (default is 0.2).</param>
     ''' <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="initialDelay"/> is negative.</exception>
-    Public Sub New(initialDelay As TimeSpan, Optional factor As Double = 2, Optional jitterFactor As Double = 0.2)
+    Public Sub New(initialDelay As TimeSpan, maxDelay As TimeSpan, Optional factor As Double = 2, Optional jitterFactor As Double = 0.2)
         If initialDelay < TimeSpan.Zero Then
             Throw New ArgumentOutOfRangeException(NameOf(initialDelay), "Initial delay cannot be negative.")
         End If
         _initialDelay = initialDelay
         _factor = factor
         _jitterFactor = jitterFactor
+        _maxDelay = maxDelay
     End Sub
 
     Public Function GetNextDelay(retryAttempt As Integer) As TimeSpan Implements IRetryStrategy.GetNextDelay
         Dim delayTicks = CLng(_initialDelay.Ticks * Math.Pow(_factor, retryAttempt - 1))
-        Dim delay = TimeSpan.FromTicks(delayTicks)
-        Dim jitter = TimeSpan.FromMilliseconds(Math.Abs(delay.TotalMilliseconds * _jitterFactor * (NextDouble() * 2 - 1)))
-        Return delay + jitter
+        Dim baseDelay = TimeSpan.FromTicks(delayTicks)
+        If baseDelay > _maxDelay Then baseDelay = _maxDelay ' Cap base delay
+
+        Dim jitterMs = baseDelay.TotalMilliseconds * _jitterFactor * (NextDouble() * 2 - 1) ' Signed jitter (centered)
+        Dim finalDelayMs = baseDelay.TotalMilliseconds + jitterMs
+        Return TimeSpan.FromMilliseconds(Math.Max(0, finalDelayMs)) ' Prevent negative delays
     End Function
 
     Private Function NextDouble() As Double
         Dim bytes(7) As Byte
         _random.GetBytes(bytes)
         Dim ul = BitConverter.ToUInt64(bytes, 0) >> 11
-        Return ul / (CDbl(ULong.MaxValue >> 11))
+        Return ul / CDbl(1UL << 53) ' Aligned with C# fix for exact [0, 1)
     End Function
+End Class
+
+''' <summary>
+''' Custom exception for unexpected results during retries.
+''' </summary>
+Public Class UnexpectedResultException(Of TResult)
+    Inherits Exception
+
+    Public ReadOnly Property Result As TResult
+
+    Public Sub New(result As TResult)
+        MyBase.New("Unexpected result")
+        Me.Result = result
+    End Sub
 End Class
 
 ''' <summary>
@@ -127,7 +154,7 @@ Public NotInheritable Class Retry
     End Sub
 
     ''' <summary>
-    ''' Executes an asynchronous action with retry logic.
+    ''' Executes an asynchronous action with retry logic. Total attempts = retryCount + 1.
     ''' </summary>
     ''' <typeparam name="TResult">The type of the result.</typeparam>
     ''' <param name="action">The asynchronous action to execute.</param>
@@ -169,7 +196,7 @@ Public NotInheritable Class Retry
         retriableExceptions As ReadOnlySpan(Of Type)) As Task(Of TResult)
 
         cancellationToken.ThrowIfCancellationRequested()
-        Dim exceptions As New List(Of Exception)
+        Dim exceptions As New List(Of Exception)(retryCount + 1) ' Preallocate capacity
 
         For retry = 0 To retryCount
             cancellationToken.ThrowIfCancellationRequested()
@@ -185,12 +212,13 @@ Public NotInheritable Class Retry
             Try
                 Dim result = Await action(cancellationToken)
                 If shouldRetryOnResults?.Any(Function(predicate) predicate(result)) = True Then
-                    exceptions.Add(New Exception("Unexpected result"))
+                    exceptions.Add(New UnexpectedResultException(Of TResult)(result)) ' Preserve result context
                     Continue For
                 End If
                 Return result
             Catch ex As Exception When retriableExceptions.IsEmpty OrElse retriableExceptions.Contains(ex.GetType())
-                If shouldRetryOnExceptions?.Any(Function(predicate) predicate(ex)) <> True Then
+                Dim shouldRetry = If(shouldRetryOnExceptions?.Any(Function(predicate) predicate(ex)), True) ' Fixed: Default to retry if no predicates
+                If Not shouldRetry Then
                     Throw
                 End If
                 exceptions.Add(ex)
@@ -201,7 +229,7 @@ Public NotInheritable Class Retry
     End Function
 
     ''' <summary>
-    ''' Executes a synchronous action with retry logic.
+    ''' Executes a synchronous action with retry logic. Total attempts = retryCount + 1.
     ''' </summary>
     ''' <typeparam name="TResult">The type of the result.</typeparam>
     ''' <param name="action">The action to execute.</param>
@@ -243,7 +271,7 @@ Public NotInheritable Class Retry
         retriableExceptions As ReadOnlySpan(Of Type)) As TResult
 
         cancellationToken.ThrowIfCancellationRequested()
-        Dim exceptions As New List(Of Exception)
+        Dim exceptions As New List(Of Exception)(retryCount + 1) ' Preallocate capacity
 
         For retry = 0 To retryCount
             cancellationToken.ThrowIfCancellationRequested()
@@ -259,12 +287,13 @@ Public NotInheritable Class Retry
             Try
                 Dim result = action()
                 If shouldRetryOnResults?.Any(Function(predicate) predicate(result)) = True Then
-                    exceptions.Add(New Exception("Unexpected result"))
+                    exceptions.Add(New UnexpectedResultException(Of TResult)(result)) ' Preserve result context
                     Continue For
                 End If
                 Return result
             Catch ex As Exception When retriableExceptions.IsEmpty OrElse retriableExceptions.Contains(ex.GetType())
-                If shouldRetryOnExceptions?.Any(Function(predicate) predicate(ex)) <> True Then
+                Dim shouldRetry = If(shouldRetryOnExceptions?.Any(Function(predicate) predicate(ex)), True) ' Fixed: Default to retry if no predicates
+                If Not shouldRetry Then
                     Throw
                 End If
                 exceptions.Add(ex)
