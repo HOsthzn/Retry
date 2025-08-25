@@ -1,358 +1,274 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+
 /// <summary>
 /// Represents a retry strategy for determining the delay between retry attempts.
 /// </summary>
 public interface IRetryStrategy
 {
-    TimeSpan GetNextDelay( int retryAttempt );
+    /// <summary>
+    /// Gets the delay for the specified retry attempt.
+    /// </summary>
+    /// <param name="retryAttempt">The current retry attempt (1-based).</param>
+    /// <returns>The delay duration for the retry attempt.</returns>
+    TimeSpan GetNextDelay(int retryAttempt);
 }
 
 /// <summary>
 /// Represents a retry strategy that uses a fixed delay interval for each retry attempt.
 /// </summary>
-public class FixedIntervalStrategy: IRetryStrategy
+public sealed class FixedIntervalStrategy : IRetryStrategy
 {
-    /// <summary>
-    /// Represents the delay duration used for a specific task or operation.
-    /// </summary>
     private readonly TimeSpan _delay;
 
     /// <summary>
-    /// Represents a strategy for executing code at fixed intervals.
+    /// Initializes a new instance of the <see cref="FixedIntervalStrategy"/> class.
     /// </summary>
-    /// <param name="delay">The time interval between each execution.</param>
-    /// <exception cref="ArgumentOutOfRangeException">Thrown when the delay is negative.</exception>
-    public FixedIntervalStrategy( TimeSpan delay )
+    /// <param name="delay">The fixed time interval between retries.</param>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="delay"/> is negative.</exception>
+    public FixedIntervalStrategy(TimeSpan delay)
     {
-        if( delay < TimeSpan.Zero ) throw new ArgumentOutOfRangeException( nameof( delay ), "Delay can't be negative" );
+        if (delay < TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(delay), "Delay cannot be negative.");
         _delay = delay;
     }
 
-    /// <summary>
-    /// Retrieves the next delay for a retry attempt.
-    /// </summary>
-    /// <param name="retryAttempt">The number of attempts made for the task.</param>
-    /// <returns>The TimeSpan representing the delay for the next retry attempt.</returns>
-    public TimeSpan GetNextDelay( int retryAttempt ) { return _delay; }
+    public TimeSpan GetNextDelay(int retryAttempt) => _delay;
 }
 
 /// <summary>
 /// Represents an exponential back-off strategy for retrying operations.
 /// </summary>
-public class ExponentialBackOffStrategy: IRetryStrategy
+public sealed class ExponentialBackOffStrategy : IRetryStrategy
 {
-    /// <summary>
-    /// The factor value used for calculations.
-    /// </summary>
     private readonly double _factor;
-
-    /// <summary>
-    /// Represents the initial delay for a specific operation.
-    /// </summary>
     private readonly TimeSpan _initialDelay;
-
-    /// <summary>
-    /// Represents the maximum delay value for a specific operation.
-    /// </summary>
     private readonly TimeSpan _maxDelay;
 
     /// <summary>
-    /// Initializes a new instance of the ExponentialBackOffStrategy class.
+    /// Initializes a new instance of the <see cref="ExponentialBackOffStrategy"/> class.
     /// </summary>
     /// <param name="initialDelay">The initial delay before the first retry.</param>
     /// <param name="maxDelay">The maximum delay between retries.</param>
-    /// <param name="factor">The factor by which the delay should be multiplied after each retry (optional).</param>
-    /// <exception cref="ArgumentOutOfRangeException">Thrown if initialDelay is negative.</exception>
-    public ExponentialBackOffStrategy( TimeSpan initialDelay, TimeSpan maxDelay, double factor = 2 )
+    /// <param name="factor">The factor by which the delay increases after each retry (default is 2).</param>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="initialDelay"/> is negative.</exception>
+    public ExponentialBackOffStrategy(TimeSpan initialDelay, TimeSpan maxDelay, double factor = 2)
     {
-        if( initialDelay < TimeSpan.Zero )
-            throw new ArgumentOutOfRangeException( nameof( initialDelay ), "InitialDelay can't be negative" );
+        if (initialDelay < TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(initialDelay), "Initial delay cannot be negative.");
         _initialDelay = initialDelay;
         _factor = factor;
         _maxDelay = maxDelay;
     }
 
-    /// <summary>
-    /// Calculate the next delay based on the retry attempt.
-    /// </summary>
-    /// <param name="retryAttempt">The current retry attempt.</param>
-    /// <returns>The calculated next delay as a TimeSpan.</returns>
-    public TimeSpan GetNextDelay( int retryAttempt )
+    public TimeSpan GetNextDelay(int retryAttempt)
     {
-        TimeSpan delay = TimeSpan.FromTicks(
-            Convert.ToInt64( _initialDelay.Ticks * Math.Pow( _factor, retryAttempt - 1 ) ) );
-        return delay > _maxDelay ? _maxDelay : delay;
+        var delayTicks = (long)(_initialDelay.Ticks * Math.Pow(_factor, retryAttempt - 1));
+        return TimeSpan.FromTicks(delayTicks) > _maxDelay ? _maxDelay : TimeSpan.FromTicks(delayTicks);
     }
 }
 
 /// <summary>
-/// Represents a retry strategy that implements exponential back-off with jitter algorithm.
+/// Represents a retry strategy that implements exponential back-off with jitter.
 /// </summary>
-public class ExponentialBackOffWithJitterStrategy: IRetryStrategy
+public sealed class ExponentialBackOffWithJitterStrategy : IRetryStrategy
 {
-    /// <summary>
-    /// The factor variable is a private double that represents a multiplication factor.
-    /// </summary>
     private readonly double _factor;
-
-    /// <summary>
-    /// Represents the initial delay for a process or operation.
-    /// </summary>
     private readonly TimeSpan _initialDelay;
-
-    /// <summary>
-    /// Represents the jitter factor that is used in a certain calculation.
-    /// </summary>
     private readonly double _jitterFactor;
+    private readonly RandomNumberGenerator _random = RandomNumberGenerator.Create();
 
     /// <summary>
-    /// Represents a random number generator.
+    /// Initializes a new instance of the <see cref="ExponentialBackOffWithJitterStrategy"/> class.
     /// </summary>
-    private readonly System.Security.Cryptography.RandomNumberGenerator _random
-        = System.Security.Cryptography.RandomNumberGenerator.Create( );
-
-    /// <summary>
-    /// Initializes a new instance of the ExponentialBackOffWithJitterStrategy class.
-    /// </summary>
-    /// <param name="initialDelay">The initial delay before the first retry attempt.</param>
-    /// <param name="factor">The multiplier used to increase the delay for each subsequent retry attempt (default is 2).</param>
-    /// <param name="jitterFactor">The factor used to apply jitter to the delay (default is 0.2).</param>
-    /// <exception cref="ArgumentOutOfRangeException">Thrown when the initialDelay is a negative value.</exception>
-    public ExponentialBackOffWithJitterStrategy( TimeSpan initialDelay, double factor = 2, double jitterFactor = 0.2 )
+    /// <param name="initialDelay">The initial delay before the first retry.</param>
+    /// <param name="factor">The multiplier for delay increase per retry (default is 2).</param>
+    /// <param name="jitterFactor">The factor for applying jitter (default is 0.2).</param>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="initialDelay"/> is negative.</exception>
+    public ExponentialBackOffWithJitterStrategy(TimeSpan initialDelay, double factor = 2, double jitterFactor = 0.2)
     {
-        if( initialDelay < TimeSpan.Zero )
-            throw new ArgumentOutOfRangeException( nameof( initialDelay ), "InitialDelay can't be negative" );
+        if (initialDelay < TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(initialDelay), "Initial delay cannot be negative.");
         _initialDelay = initialDelay;
         _factor = factor;
         _jitterFactor = jitterFactor;
     }
 
-    /// <summary>
-    /// Calculates the next delay based on the retry attempt.
-    /// </summary>
-    /// <param name="retryAttempt">The retry attempt count.</param>
-    /// <returns>The calculated delay as a TimeSpan.</returns>
-    /// <remarks>
-    /// The delay is calculated using the formula:
-    /// delay = initialDelay * Math.Pow(factor, retryAttempt - 1)
-    /// The delay is then adjusted using jitter to introduce randomness:
-    /// jitter = delay * jitterFactor * (random double between -1 and 1)
-    /// The final delay is the sum of the calculated delay and jitter.
-    /// </remarks>
-    public TimeSpan GetNextDelay( int retryAttempt )
+    public TimeSpan GetNextDelay(int retryAttempt)
     {
-        TimeSpan delay = TimeSpan.FromTicks(
-            Convert.ToInt64( _initialDelay.Ticks * Math.Pow( _factor, retryAttempt - 1 ) ) );
-        TimeSpan jitter = TimeSpan.FromMilliseconds(
-            Math.Abs( delay.TotalMilliseconds * _jitterFactor * ( NextDouble( ) * 2 - 1 ) ) );
+        var delayTicks = (long)(_initialDelay.Ticks * Math.Pow(_factor, retryAttempt - 1));
+        var delay = TimeSpan.FromTicks(delayTicks);
+        var jitter = TimeSpan.FromMilliseconds(Math.Abs(delay.TotalMilliseconds * _jitterFactor * (NextDouble() * 2 - 1)));
         return delay + jitter;
     }
 
-    /// <summary>
-    /// Generates a random double value between 0.0 and 1.0 (inclusive).
-    /// </summary>
-    /// <returns>
-    /// A random double value between 0.0 and 1.0 (inclusive).
-    /// </returns>
-    private double NextDouble( )
+    private double NextDouble()
     {
-        byte[ ] bytes = new byte[ sizeof( double ) ];
-        _random.GetBytes( bytes );
-        ulong ul = BitConverter.ToUInt64( bytes, 0 ) / ( 1 << 11 );
-        return ul / ( double )( 1UL << 53 );
+        byte[] bytes = new byte[sizeof(double)];
+        _random.GetBytes(bytes);
+        return BitConverter.ToUInt64(bytes, 0) / (double)(1UL << 53);
     }
 }
 
 /// <summary>
-/// Provides methods for retrying actions and functions with optional retry strategies and retry conditions.
+/// Provides methods for retrying actions with configurable retry strategies and conditions.
 /// </summary>
 public static class Retry
 {
     /// <summary>
-    /// Invokes the given asynchronous action with retry logic.
-    /// </summary>
-    /// <typeparam name="TResult">The type of the result returned by the asynchronous action.</typeparam>
-    /// <param name="action">The asynchronous action to invoke.</param>
-    /// <param name="retryCount">The number of times to retry the action if it fails.</param>
-    /// <param name="retryStrategy">The strategy for determining the delay between retries. If not specified, a <see cref="FixedIntervalStrategy"/> with a delay of 1 second will be used.</param>
-    /// <param name="cancellationToken">The cancellation token to observe.</param>
-    /// <param name="shouldRetryOnExceptions">A collection of predicate functions to determine if a specific exception should be retried. If not specified, no exceptions will be retried.</param>
-    /// <param name="shouldRetryOnResults">A collection of predicate functions to determine if a specific result should be retried. If not specified, no results will be retried.</param>
-    /// <param name="retriableExceptions">An array of types representing the exceptions that should be retried. If not specified, all exceptions will be retried.</param>
-    /// <returns>A task representing the asynchronous operation.</returns>
-    public static async Task< TResult > DoAsync< TResult >(
-        Func< CancellationToken, Task< TResult > > action
-        , int retryCount
-        , IRetryStrategy? retryStrategy = null
-        , CancellationToken cancellationToken = default
-        , IEnumerable< Func< Exception, bool > > shouldRetryOnExceptions = null
-        , IEnumerable< Func< TResult, bool > > shouldRetryOnResults = null
-        , Type[ ] retriableExceptions = null )
-    {
-        ArgumentNullException.ThrowIfNull( action );
-       if (retryCount < 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(retryCount), "Value cannot be negative");
-        }
-        retryStrategy ??= new FixedIntervalStrategy( TimeSpan.FromSeconds( 1 ) );
-        return await RetryAction(
-            action
-            , retryStrategy
-            , retryCount
-            , cancellationToken
-            , shouldRetryOnExceptions
-            , shouldRetryOnResults
-            , retriableExceptions );
-    }
-
-    /// <summary>
-    /// Executes the specified action with the option to retry on specific exceptions or results.
+    /// Executes an asynchronous action with retry logic.
     /// </summary>
     /// <typeparam name="TResult">The type of the result.</typeparam>
-    /// <param name="action">The action to be executed.</param>
-    /// <param name="retryStrategy">The retry strategy to be used.</param>
-    /// <param name="retryCount">The number of times to retry the action.</param>
-    /// <param name="cancellationToken">The cancellation token.</param>
-    /// <param name="shouldRetryOnExceptions">The list of predicates to determine if an exception should be retried.</param>
-    /// <param name="shouldRetryOnResults">The list of predicates to determine if a result should be retried.</param>
-    /// <param name="retriableExceptions">The array of exception types to be retried.</param>
-    /// <returns>A task that represents the asynchronous operation.</returns>
-    private static async Task< TResult > RetryAction< TResult >(
-        Func< CancellationToken, Task< TResult > > action
-        , IRetryStrategy? retryStrategy
-        , int retryCount
-        , CancellationToken cancellationToken
-        , IEnumerable< Func< Exception, bool > > shouldRetryOnExceptions = null
-        , IEnumerable< Func< TResult, bool > > shouldRetryOnResults = null
-        , Type[ ] retriableExceptions = null )
+    /// <param name="action">The asynchronous action to execute.</param>
+    /// <param name="retryCount">The maximum number of retry attempts.</param>
+    /// <param name="retryStrategy">The strategy for retry delays. Defaults to <see cref="FixedIntervalStrategy"/> with 1-second delay.</param>
+    /// <param name="cancellationToken">The cancellation token to cancel the operation.</param>
+    /// <param name="shouldRetryOnExceptions">Predicates to determine if an exception should trigger a retry.</param>
+    /// <param name="shouldRetryOnResults">Predicates to determine if a result should trigger a retry.</param>
+    /// <param name="retriableExceptions">Exception types that are retriable.</param>
+    /// <returns>A task representing the result of the action.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="action"/> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="retryCount"/> is negative.</exception>
+    /// <exception cref="AggregateException">Thrown when all retries fail.</exception>
+    public static async Task<TResult> DoAsync<TResult>(
+        Func<CancellationToken, Task<TResult>> action,
+        int retryCount,
+        IRetryStrategy? retryStrategy = null,
+        CancellationToken cancellationToken = default,
+        IEnumerable<Func<Exception, bool>>? shouldRetryOnExceptions = null,
+        IEnumerable<Func<TResult, bool>>? shouldRetryOnResults = null,
+        ReadOnlySpan<Type> retriableExceptions = default)
     {
-        cancellationToken.ThrowIfCancellationRequested( );
-        List< Exception > exceptions = new( );
-        for( int retry = 0; retry <= retryCount; retry++ )
+        ArgumentNullException.ThrowIfNull(action);
+        if (retryCount < 0)
+            throw new ArgumentOutOfRangeException(nameof(retryCount), "Retry count cannot be negative.");
+
+        retryStrategy ??= new FixedIntervalStrategy(TimeSpan.FromSeconds(1));
+        return await RetryActionAsync(action, retryStrategy, retryCount, cancellationToken, shouldRetryOnExceptions, shouldRetryOnResults, retriableExceptions);
+    }
+
+    private static async Task<TResult> RetryActionAsync<TResult>(
+        Func<CancellationToken, Task<TResult>> action,
+        IRetryStrategy retryStrategy,
+        int retryCount,
+        CancellationToken cancellationToken,
+        IEnumerable<Func<Exception, bool>>? shouldRetryOnExceptions,
+        IEnumerable<Func<TResult, bool>>? shouldRetryOnResults,
+        ReadOnlySpan<Type> retriableExceptions)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        List<Exception> exceptions = [];
+
+        for (int retry = 0; retry <= retryCount; retry++)
         {
-            cancellationToken.ThrowIfCancellationRequested( );
-            if( retry > 0 )
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (retry > 0)
             {
-                TimeSpan delay = retryStrategy.GetNextDelay( retry );
-                if( delay < TimeSpan.Zero )
-                    throw new InvalidOperationException( "GetNextDelay must not return a negative delay" );
-                await Task.Delay( delay, cancellationToken );
+                var delay = retryStrategy.GetNextDelay(retry);
+                if (delay < TimeSpan.Zero)
+                    throw new InvalidOperationException("Retry delay cannot be negative.");
+                await Task.Delay(delay, cancellationToken);
             }
 
             try
             {
-                TResult result = await action( cancellationToken );
-
-                if( shouldRetryOnResults != null && shouldRetryOnResults.Any( predicate => predicate( result ) ) )
+                var result = await action(cancellationToken);
+                if (shouldRetryOnResults?.Any(predicate => predicate(result)) == true)
                 {
-                    exceptions.Add( new Exception( "Unexpected result" ) );
+                    exceptions.Add(new Exception("Unexpected result"));
+                    continue;
                 }
-                else { return result; }
+                return result;
             }
-            catch( Exception ex ) when
-                ( retriableExceptions?.Contains( ex.GetType( ) ) ?? true )
+            catch (Exception ex) when (retriableExceptions.IsEmpty || retriableExceptions.Contains(ex.GetType()))
             {
-                if( shouldRetryOnExceptions != null && !shouldRetryOnExceptions.Any( predicate => predicate( ex ) ) )
+                if (shouldRetryOnExceptions?.Any(predicate => predicate(ex)) != true)
                     throw;
-                exceptions.Add( ex );
+                exceptions.Add(ex);
             }
         }
 
-        throw new AggregateException( exceptions );
+        throw new AggregateException(exceptions);
     }
 
     /// <summary>
-    /// Executes the given action with retry logic based on the specified parameters.
+    /// Executes a synchronous action with retry logic.
     /// </summary>
-    /// <typeparam name="TResult">The type of the result returned by the action.</typeparam>
-    /// <param name="action">The action to be executed.</param>
-    /// <param name="retryCount">The maximum number of times the action should be retried.</param>
-    /// <param name="retryStrategy">The strategy for determining the retry interval. If not specified, a default FixedIntervalStrategy with a wait time of 1 second will be used.</param>
-    /// <param name="shouldRetryOnExceptions">Optional collection of functions that determine whether an exception should trigger a retry. If not specified, all exceptions will be retried.</param>
-    /// <param name="shouldRetryOnResults">Optional collection of functions that determine whether a result should trigger a retry. If not specified, all results will be retried.</param>
-    /// <param name="retriableExceptions">Optional collection of exceptions that are retriable. If not specified, all exceptions will be retried.</param>
-    /// <returns>The result returned by the action.</returns>
-    public static TResult Do< TResult >(
-        Func< TResult > action
-        , int retryCount
-        , IRetryStrategy? retryStrategy = null
-        , IEnumerable< Func< Exception, bool > > shouldRetryOnExceptions = null
-        , IEnumerable< Func< TResult, bool > > shouldRetryOnResults = null
-        , Type[ ] retriableExceptions = null )
+    /// <typeparam name="TResult">The type of the result.</typeparam>
+    /// <param name="action">The action to execute.</param>
+    /// <param name="retryCount">The maximum number of retry attempts.</param>
+    /// <param name="retryStrategy">The strategy for retry delays. Defaults to <see cref="FixedIntervalStrategy"/> with 1-second delay.</param>
+    /// <param name="cancellationToken">The cancellation token to cancel the operation.</param>
+    /// <param name="shouldRetryOnExceptions">Predicates to determine if an exception should trigger a retry.</param>
+    /// <param name="shouldRetryOnResults">Predicates to determine if a result should trigger a retry.</param>
+    /// <param name="retriableExceptions">Exception types that are retriable.</param>
+    /// <returns>The result of the action.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="action"/> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="retryCount"/> is negative.</exception>
+    /// <exception cref="AggregateException">Thrown when all retries fail.</exception>
+    public static TResult Do<TResult>(
+        Func<TResult> action,
+        int retryCount,
+        IRetryStrategy? retryStrategy = null,
+        CancellationToken cancellationToken = default,
+        IEnumerable<Func<Exception, bool>>? shouldRetryOnExceptions = null,
+        IEnumerable<Func<TResult, bool>>? shouldRetryOnResults = null,
+        ReadOnlySpan<Type> retriableExceptions = default)
     {
-        ArgumentNullException.ThrowIfNull( action );
-       if (retryCount < 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(retryCount), "Value cannot be negative");
-        }
+        ArgumentNullException.ThrowIfNull(action);
+        if (retryCount < 0)
+            throw new ArgumentOutOfRangeException(nameof(retryCount), "Retry count cannot be negative.");
 
-        retryStrategy ??= new FixedIntervalStrategy( TimeSpan.FromSeconds( 1 ) );
-
-        return RetryAction(
-            action
-            , retryStrategy
-            , retryCount
-            , shouldRetryOnExceptions
-            , shouldRetryOnResults
-            , retriableExceptions );
+        retryStrategy ??= new FixedIntervalStrategy(TimeSpan.FromSeconds(1));
+        return RetryAction(action, retryStrategy, retryCount, cancellationToken, shouldRetryOnExceptions, shouldRetryOnResults, retriableExceptions);
     }
 
-    /// <summary>
-    /// Retries the specified action multiple times based on the provided retry options.
-    /// </summary>
-    /// <typeparam name="TResult">The type of the result returned by the action.</typeparam>
-    /// <param name="action">The action to be executed.</param>
-    /// <param name="retryStrategy">The retry strategy to be used.</param>
-    /// <param name="retryCount">The maximum number of retries.</param>
-    /// <param name="shouldRetryOnExceptions">
-    /// Optional. The collection of predicates to determine if a specific exception should be retried.
-    /// </param>
-    /// <param name="shouldRetryOnResults">
-    /// Optional. The collection of predicates to determine if a specific result should be retried.
-    /// </param>
-    /// <param name="retriableExceptions">
-    /// Optional. The collection of exception types that should be retried.
-    /// </param>
-    /// <returns>
-    /// The result returned by the action if it succeeds, or throws an <see cref="AggregateException"/>
-    /// containing the exceptions encountered during retries.
-    /// </returns>
-    private static TResult RetryAction< TResult >(
-        Func< TResult > action
-        , IRetryStrategy? retryStrategy
-        , int retryCount
-        , IEnumerable< Func< Exception, bool > > shouldRetryOnExceptions = null
-        , IEnumerable< Func< TResult, bool > > shouldRetryOnResults = null
-        , Type[ ] retriableExceptions = null )
+    private static TResult RetryAction<TResult>(
+        Func<TResult> action,
+        IRetryStrategy retryStrategy,
+        int retryCount,
+        CancellationToken cancellationToken,
+        IEnumerable<Func<Exception, bool>>? shouldRetryOnExceptions,
+        IEnumerable<Func<TResult, bool>>? shouldRetryOnResults,
+        ReadOnlySpan<Type> retriableExceptions)
     {
-        List< Exception > exceptions = new( );
-        for( int retry = 0; retry <= retryCount; retry++ )
+        cancellationToken.ThrowIfCancellationRequested();
+        List<Exception> exceptions = [];
+
+        for (int retry = 0; retry <= retryCount; retry++)
         {
-            if( retry > 0 )
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (retry > 0)
             {
-                TimeSpan delay = retryStrategy.GetNextDelay( retry );
-                if( delay < TimeSpan.Zero )
-                    throw new InvalidOperationException( "GetNextDelay must not return a negative delay" );
-                Task.Delay( delay ).Wait( );
+                var delay = retryStrategy.GetNextDelay(retry);
+                if (delay < TimeSpan.Zero)
+                    throw new InvalidOperationException("Retry delay cannot be negative.");
+                Task.Delay(delay, cancellationToken).Wait(cancellationToken);
             }
 
             try
             {
-                TResult result = action( );
-                if( shouldRetryOnResults != null && shouldRetryOnResults.Any( predicate => predicate( result ) ) )
+                var result = action();
+                if (shouldRetryOnResults?.Any(predicate => predicate(result)) == true)
                 {
-                    exceptions.Add( new Exception( "Unexpected result" ) );
+                    exceptions.Add(new Exception("Unexpected result"));
+                    continue;
                 }
-                else { return result; }
+                return result;
             }
-            catch( Exception ex ) when
-                ( retriableExceptions?.Contains( ex.GetType( ) ) ?? true )
+            catch (Exception ex) when (retriableExceptions.IsEmpty || retriableExceptions.Contains(ex.GetType()))
             {
-                if( shouldRetryOnExceptions != null && !shouldRetryOnExceptions.Any( predicate => predicate( ex ) ) )
+                if (shouldRetryOnExceptions?.Any(predicate => predicate(ex)) != true)
                     throw;
-                exceptions.Add( ex );
+                exceptions.Add(ex);
             }
         }
 
-        throw new AggregateException( exceptions );
+        throw new AggregateException(exceptions);
     }
 }
