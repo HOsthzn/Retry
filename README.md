@@ -1,123 +1,104 @@
 # Retry Library Documentation
 
-> The concepts behind the provided Retry objects can easily be adapted to other programming languages and utilized in a
-> similar fashion
+> The concepts behind the provided Retry objects can easily be adapted to other programming languages and utilized in a similar fashion.
 
-This is a utility library for retrying operations that can encounter transient faults. Retry operations can be
-configured to happen synchronously or asynchronously, and return either a void or a type result. The code also
-provides interfaces for implementing custom retry strategies.
+This is a utility library for retrying operations that can encounter transient faults. Retry operations can be configured to happen synchronously or asynchronously, and return either a void or a typed result. The code provides interfaces for implementing custom retry strategies.
 
-## Example usages
+## Example Usages
 
-Let's illustrate the most common usage scenarios.
+Below are the most common usage scenarios. Note that `retryCount` specifies the number of retry attempts after the initial attempt, so total attempts = `retryCount + 1`.
 
-**1. Retrying asynchronous operations returning `Task<TResult>`:**
+### 1. Retrying Asynchronous Operations Returning `Task<TResult>`
 
-C#:
+**C#**:
 
 ```csharp
 Func<CancellationToken, Task<int>> action = async (token) => 
 {
-    // some asynchronous operation that could fail
-    // replace with actual implementation
+    // Some asynchronous operation that could fail
     return await Task.FromResult(1);
 };
-var result = await Retry.DoAsync(action, 3));
+var result = await Retry.DoAsync(action, retryCount: 3, maxDelay: TimeSpan.FromSeconds(10));
 ```
 
-VB.NET:
+**VB.NET**:
 
 ```vb
-Dim action As Func(Of CancellationToken, Task(Of Integer))
-action = Async Function(token As CancellationToken) As Task(Of Integer)
-    ' some asynchronous operation that could fail
-    ' replace with actual implementation
+Dim action As Func(Of CancellationToken, Task(Of Integer)) = Async Function(token) As Task(Of Integer)
+    ' Some asynchronous operation that could fail
     Return Await Task.FromResult(1)
 End Function
-
-Dim result = Await Retry.DoAsync(action, 3)
+Dim result = Await Retry.DoAsync(action, retryCount:=3, maxDelay:=TimeSpan.FromSeconds(10))
 ```
 
-In this case, the action is retried 3 times if it fails, using a fixed delay of 1 second between each retry.
-> Note: the FixedIntervalStrategy with a delay of 1 second is used by default.
+In this case, the action is retried up to 3 times if it fails, using a fixed delay of 1 second between each retry (default `FixedIntervalStrategy`).
 
-**2. Retrying synchronous operations returning `TResult`:**
+### 2. Retrying Synchronous Operations Returning `TResult`
 
-C#:
+**C#**:
 
 ```csharp
 Func<int> action = () => 
 {
-    // some synchronous operation that could fail
-    // replace with actual implementation
+    // Some synchronous operation that could fail
     return 1;
 };
-var result = Retry.Do(action, 3, new FixedIntervalStrategy(TimeSpan.FromSeconds(3)));
+var result = Retry.Do(action, retryCount: 3, retryStrategy: new FixedIntervalStrategy(TimeSpan.FromSeconds(3)), maxDelay: TimeSpan.FromSeconds(10));
 ```
 
-VB.NET:
+**VB.NET**:
 
 ```vb
-Dim action As Func(Of Integer)
-action = Function()
-    ' some synchronous operation that could fail
-    ' replace with actual implementation
+Dim action As Func(Of Integer) = Function()
+    ' Some synchronous operation that could fail
     Return 1
 End Function
-
-Dim result = Retry.Do(action, 3, New FixedIntervalStrategy(TimeSpan.FromSeconds(3)))
+Dim result = Retry.Do(action, retryCount:=3, retryStrategy:=New FixedIntervalStrategy(TimeSpan.FromSeconds(3)), maxDelay:=TimeSpan.FromSeconds(10))
 ```
 
-In this case, the action is retried 3 times if it fails, using a fixed delay of 3 second between each retry.
+The action is retried up to 3 times with a fixed delay of 3 seconds between retries.
 
-**3. For functions that return `void`:**
+### 3. For Functions That Return `void`
 
-C#:
+**C#**:
 
 ```csharp
 Action action = () => 
 {
-    // some operation that could fail
-    // replace with actual implementation
+    // Some operation that could fail
 };
-
-Retry.Do(action, 3, new FixedIntervalStrategy(TimeSpan.FromSeconds(3)));
+Retry.Do(action, retryCount: 3, retryStrategy: new FixedIntervalStrategy(TimeSpan.FromSeconds(3)), maxDelay: TimeSpan.FromSeconds(10));
 ```
 
-VB.NET:
+**VB.NET**:
 
 ```vb
-Dim action As Action
-action = Sub()
-    ' some operation that could fail
-    ' replace with actual implementation
+Dim action As Action = Sub()
+    ' Some operation that could fail
 End Sub
-
-Retry.Do(action, 3, New FixedIntervalStrategy(TimeSpan.FromSeconds(3)))
+Retry.Do(action, retryCount:=3, retryStrategy:=New FixedIntervalStrategy(TimeSpan.FromSeconds(3)), maxDelay:=TimeSpan.FromSeconds(10))
 ```
 
-In this case, the action is retried 3 times if it fails, using a fixed delay of 3 second between each retry.
+The action is retried up to 3 times with a fixed delay of 3 seconds between retries.
 
-**4. Implementing custom retry strategies:**
+### 4. Implementing Custom Retry Strategies
 
-You can also implement custom retry strategies by implementing the `IRetryStrategy` interface.
+You can implement custom retry strategies by implementing the `IRetryStrategy` interface. Here's an example of an exponential back-off strategy:
 
-For instance, an exponential back-off strategy could be implemented like below:
-
-C#:
+**C#**:
 
 ```csharp
-public class CustomExponentialBackOffStrategy: IRetryStrategy
+public class CustomExponentialBackOffStrategy : IRetryStrategy
 {
     public TimeSpan GetNextDelay(int retryAttempt)
     {
         var delay = TimeSpan.FromSeconds(Math.Pow(2, retryAttempt));
-        return delay;
+        return delay > TimeSpan.FromSeconds(10) ? TimeSpan.FromSeconds(10) : delay;
     }
 }
 ```
 
-VB.NET:
+**VB.NET**:
 
 ```vb
 Public Class CustomExponentialBackOffStrategy
@@ -125,194 +106,184 @@ Public Class CustomExponentialBackOffStrategy
 
     Public Function GetNextDelay(retryAttempt As Integer) As TimeSpan Implements IRetryStrategy.GetNextDelay
         Dim delay = TimeSpan.FromSeconds(Math.Pow(2, retryAttempt))
-        Return delay
+        Return If(delay > TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10), delay)
     End Function
 End Class
 ```
 
-Then use your custom strategy in the retry operation:
+Then use it:
 
-C#:
+**C#**:
 
 ```csharp
 Func<int> action = () => 
 {
-    // some operation that could fail
-    // replace with actual implementation
+    // Some operation that could fail
     return 1;
 };
-var result = Retry.Do(action, 3, new CustomExponentialBackOffStrategy());
+var result = Retry.Do(action, retryCount: 3, retryStrategy: new CustomExponentialBackOffStrategy(), maxDelay: TimeSpan.FromSeconds(10));
 ```
 
-VB.NET:
+**VB.NET**:
 
 ```vb
-Dim action As Func(Of Integer)
-action = Function()
-    ' some operation that could fail
-    ' replace with actual implementation
+Dim action As Func(Of Integer) = Function()
+    ' Some operation that could fail
     Return 1
 End Function
-
-Dim result = Retry.Do(action, 3, New CustomExponentialBackOffStrategy())
+Dim result = Retry.Do(action, retryCount:=3, retryStrategy:=New CustomExponentialBackOffStrategy(), maxDelay:=TimeSpan.FromSeconds(10))
 ```
 
-## Configuring exception handling
+## Configuring Exception Handling
 
-You can pass certain conditions that an exception or result must meet in order to trigger a retry. The updated library
-now allows this to be specified as a collection of Func delegates and hence can accept multiple conditions:
+You can specify conditions for exceptions or results that trigger a retry. If no exception predicates are provided, retries occur for any exception in `retriableExceptions` (or all exceptions if empty). A custom `UnexpectedResultException<T>` is thrown for result-based retries to preserve context.
 
-C#:
+**C#**:
 
 ```csharp
-IEnumerable<Func<Exception, bool>> shouldRetryOnExceptions = new List<Func<Exception, bool>> 
+var shouldRetryOnExceptions = new List<Func<Exception, bool>>
 {
-    ex => ex is TimeoutException,       // retry on timeout exceptions
-    ex => ex is NetworkException        // retry on network exceptions
+    ex => ex is TimeoutException,       // Retry on timeout exceptions
+    ex => ex is NetworkException        // Retry on network exceptions
 };
 
-IEnumerable<Func<string, bool>> shouldRetryOnResults = new List<Func<string, bool>> 
+var shouldRetryOnResults = new List<Func<string, bool>>
 {
-    result => string.IsNullOrEmpty(result),  // retry if string is empty or null 
-    result => result.Length < 10,            // retry if string length less than 10
+    result => string.IsNullOrEmpty(result),  // Retry if string is empty or null
+    result => result.Length < 10            // Retry if string length is less than 10
 };
 
-Func<int> action = () => 
+Func<string> action = () => 
 {
-    // some operation that could fail
-    // replace with actual implementation
-    return 1;
+    // Some operation that could fail
+    return "success";
 };
 
 var result = Retry.Do(
     action,
-    3, 
-    new FixedIntervalStrategy(TimeSpan.FromSeconds(1)), 
-    shouldRetryOnExceptions, 
-    shouldRetryOnResults);
+    retryCount: 3,
+    retryStrategy: new FixedIntervalStrategy(TimeSpan.FromSeconds(1)),
+    shouldRetryOnExceptions: shouldRetryOnExceptions,
+    shouldRetryOnResults: shouldRetryOnResults,
+    maxDelay: TimeSpan.FromSeconds(10));
 ```
 
-VB.NET:
+**VB.NET**:
 
 ```vb
-Dim shouldRetryOnExceptions As IEnumerable(Of Func(Of Exception, Boolean)) = New List(Of Func(Of Exception, Boolean)) From {
-    Function(ex) TypeOf ex Is TimeoutException, ' retry on timeout exceptions
-    Function(ex) TypeOf ex Is NetworkException ' retry on network exceptions
+Dim shouldRetryOnExceptions As New List(Of Func(Of Exception, Boolean)) From {
+    Function(ex) TypeOf ex Is TimeoutException, ' Retry on timeout exceptions
+    Function(ex) TypeOf ex Is NetworkException ' Retry on network exceptions
 }
 
-Dim shouldRetryOnResults As IEnumerable(Of Func(Of String, Boolean)) = New List(Of Func(Of String, Boolean)) From {
-    Function(result) String.IsNullOrEmpty(result), ' retry if string is empty or null
-    Function(result) result.Length < 10 ' retry if string length is less than 10
+Dim shouldRetryOnResults As New List(Of Func(Of String, Boolean)) From {
+    Function(result) String.IsNullOrEmpty(result), ' Retry if string is empty or null
+    Function(result) result.Length < 10 ' Retry if string length is less than 10
 }
 
-Dim action As Func(Of Integer)
-action = Function()
-    ' some operation that could fail
-    ' replace with actual implementation
-    Return 1
+Dim action As Func(Of String) = Function()
+    ' Some operation that could fail
+    Return "success"
 End Function
 
-Dim result = Retry.Do(action, 3, New FixedIntervalStrategy(TimeSpan.FromSeconds(1)), shouldRetryOnExceptions, shouldRetryOnResults)
+Dim result = Retry.Do(
+    action,
+    retryCount:=3,
+    retryStrategy:=New FixedIntervalStrategy(TimeSpan.FromSeconds(1)),
+    shouldRetryOnExceptions:=shouldRetryOnExceptions,
+    shouldRetryOnResults:=shouldRetryOnResults,
+    maxDelay:=TimeSpan.FromSeconds(10))
 ```
 
-In this case, retry will occur if any of the specified conditions in exception checks or result checks is met.
+Retries occur if any exception or result condition is met.
 
-## ExponentialBackOffWithJitterStrategy example
+## ExponentialBackOffWithJitterStrategy Example
 
-C#:
+**C#**:
 
 ```csharp
 Func<CancellationToken, Task<int>> action = async (token) =>
 {
-    // some asynchronous operation that could fail
-    // replace with actual implementation
+    // Some asynchronous operation that could fail
     return await Task.FromResult(1);
 };
 
-var jitterStrategy = new ExponentialBackOffWithJitterStrategy(TimeSpan.FromSeconds(1));
+var jitterStrategy = new ExponentialBackOffWithJitterStrategy(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(10));
 
 var result = await Retry.DoAsync(
     action: action,
     retryCount: 3,
     retryStrategy: jitterStrategy,
     cancellationToken: CancellationToken.None,
-    shouldRetryOnException: ex => ex is TimeoutException
-);
+    shouldRetryOnException: ex => ex is TimeoutException,
+    maxDelay: TimeSpan.FromSeconds(10));
 ```
 
-VB.NET:
+**VB.NET**:
 
 ```vb
-Dim action As Func(Of CancellationToken, Task(Of Integer))
-action = Async Function(token As CancellationToken) As Task(Of Integer)
-    ' some asynchronous operation that could fail
-    ' replace with actual implementation
+Dim action As Func(Of CancellationToken, Task(Of Integer)) = Async Function(token) As Task(Of Integer)
+    ' Some asynchronous operation that could fail
     Return Await Task.FromResult(1)
 End Function
 
-Dim jitterStrategy = New ExponentialBackOffWithJitterStrategy(TimeSpan.FromSeconds(1))
+Dim jitterStrategy = New ExponentialBackOffWithJitterStrategy(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(10))
 
-Dim result = Await Retry.DoAsync(action:=action, retryCount:=3, retryStrategy:=jitterStrategy, cancellationToken:=CancellationToken.None, shouldRetryOnException:=Function(ex) TypeOf ex Is TimeoutException)
+Dim result = Await Retry.DoAsync(
+    action:=action,
+    retryCount:=3,
+    retryStrategy:=jitterStrategy,
+    cancellationToken:=CancellationToken.None,
+    shouldRetryOnException:=Function(ex) TypeOf ex Is TimeoutException,
+    maxDelay:=TimeSpan.FromSeconds(10))
 ```
 
-In this example, the action is an asynchronous operation that is retried 3 times if it fails. The delay between each
-retry is determined by an ExponentialBackOffWithJitterStrategy which initially waits 1 second, and then increases
-exponentially, with a random jitter/delay added.
-If a TimeoutException is thrown, the operation would be retried based on the retry strategy provided.
-
-___
+The action is retried up to 3 times with exponential back-off (starting at 1 second) plus centered jitter (±20% by default), capped at 10 seconds.
 
 ## Examples in JavaScript
 
-For JavaScript ES6:
+The JavaScript `Retry` object provides `attempt` and `attemptAsync` functions for synchronous and asynchronous retries, respectively. Note: Synchronous `attempt` now includes delays but uses a CPU-intensive busy-wait; prefer `attemptAsync` for non-blocking retries.
 
-The Retry object in JavaScript provides two functions, 'attempt' and 'attemptAsync', that perform retries, each with a
-regular or an async function. The following demonstrates how to use these functions:
+### 1. Retrying with the `Retry.attempt` Function
 
-1. ***Retrying with the 'Retry.attempt' Function:*** This function performs retries with regular functions. It has the
-   following parameters:
-    - `action`: This is the function to be executed.
-    - `retryInterval`: This is the interval between retries in milliseconds.
-    - `maxAttempts`: This specifies the maximum number of attempts and defaults to 3.
-    - `strategy`: This specifies the strategy for retrying operations and defaults to Retry.Strategy.FIXED_INTERVAL.
+For regular or async functions (handled via Promise resolution):
 
 ```javascript
 function myAction() {
-    // Your logic here 
+    // Your logic here
+    return 42;
 }
 
-Retry.attempt(myAction, 1000, 5, Retry.Strategy.EXPONENTIAL_BACKOFF);
+Retry.attempt(myAction, 1000, 5, Retry.Strategy.EXPONENTIAL_BACKOFF, console.log, 10000);
 ```
 
-In this example, `myAction` is executed up to five times. If the function fails five times, it throws an error. The
-retry interval in this case is 1 second for the first attempt, 2 seconds for the second attempt, 4 seconds for the third
-attempt, 8 seconds for the fourth attempt, and 16 seconds for the fifth attempt.
+The action is attempted up to 5 times with exponential back-off (1s, 2s, 4s, 8s, 16s, capped at 10s). If `myAction` returns a Promise, it’s awaited synchronously (blocks thread).
 
-2. ***Retrying with the Retry.attemptAsync Function:*** This function works with async functions and uses the same
-   parameters as the `Retry.attempt` function.
+### 2. Retrying with the `Retry.attemptAsync` Function
+
+For async functions:
 
 ```javascript
 async function myAsyncAction() {
-    // Your logic here 
+    // Your async logic here
+    return 42;
 }
 
-await Retry.attemptAsync(myAsyncAction, 1000, 5, Retry.Strategy.EXPONENTIAL_BACKOFF);
+await Retry.attemptAsync(myAsyncAction, 1000, 5, Retry.Strategy.EXPONENTIAL_BACKOFF, console.log, 10000);
 ```
 
-In this example, `myAsyncAction` is executed up to five times. If the function fails five times, it throws an error. The
-retry interval is 1 second for the first attempt, 2 seconds for the second attempt, 4 seconds for the third attempt, 8
-seconds for the fourth attempt, and 16 seconds for the fifth attempt.
+The async action is retried up to 5 times with exponential back-off (capped at 10s). If all attempts fail, an `AggregateError` (or fallback `Error`) is thrown with all exceptions.
 
-3. ***Setting a Custom Retry Strategy:*** For a custom retry strategy, create a new function that calculates the retry
-   interval, and pass the function to the `Retry.attempt` or `Retry.attemptAsync` function.
+### 3. Setting a Custom Retry Strategy
+
+Define a custom strategy as a function:
 
 ```javascript
 function myCustomStrategy(attempted) {
-    return attempted * 1000;
+    return Math.min(attempted * 1000, 10000); // Cap at 10s
 }
 
-Retry.attempt(myAction, myCustomStrategy, 5);
+await Retry.attemptAsync(myAsyncAction, myCustomStrategy, 5, console.log, 10000);
 ```
 
-In this case, the retry interval will be 1 second for the first attempt, 2 seconds for the second attempt, 3 seconds for
-the third attempt, 4 seconds for the fourth attempt, and 5 seconds for the fifth attempt.
+The retry interval increases linearly (1s, 2s, 3s, 4s, 5s, capped at 10s).
