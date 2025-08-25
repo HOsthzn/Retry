@@ -67,7 +67,8 @@ public sealed class ExponentialBackOffStrategy : IRetryStrategy
     public TimeSpan GetNextDelay(int retryAttempt)
     {
         var delayTicks = (long)(_initialDelay.Ticks * Math.Pow(_factor, retryAttempt - 1));
-        return TimeSpan.FromTicks(delayTicks) > _maxDelay ? _maxDelay : TimeSpan.FromTicks(delayTicks);
+        var delay = TimeSpan.FromTicks(delayTicks);
+        return delay > _maxDelay ? _maxDelay : delay;
     }
 }
 
@@ -79,37 +80,57 @@ public sealed class ExponentialBackOffWithJitterStrategy : IRetryStrategy
     private readonly double _factor;
     private readonly TimeSpan _initialDelay;
     private readonly double _jitterFactor;
+    private readonly TimeSpan _maxDelay; // Added maxDelay for consistency and to cap growth
     private readonly RandomNumberGenerator _random = RandomNumberGenerator.Create();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ExponentialBackOffWithJitterStrategy"/> class.
     /// </summary>
     /// <param name="initialDelay">The initial delay before the first retry.</param>
+    /// <param name="maxDelay">The maximum delay between retries.</param>
     /// <param name="factor">The multiplier for delay increase per retry (default is 2).</param>
     /// <param name="jitterFactor">The factor for applying jitter (default is 0.2).</param>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="initialDelay"/> is negative.</exception>
-    public ExponentialBackOffWithJitterStrategy(TimeSpan initialDelay, double factor = 2, double jitterFactor = 0.2)
+    public ExponentialBackOffWithJitterStrategy(TimeSpan initialDelay, TimeSpan maxDelay, double factor = 2, double jitterFactor = 0.2)
     {
         if (initialDelay < TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(initialDelay), "Initial delay cannot be negative.");
         _initialDelay = initialDelay;
         _factor = factor;
         _jitterFactor = jitterFactor;
+        _maxDelay = maxDelay;
     }
 
     public TimeSpan GetNextDelay(int retryAttempt)
     {
         var delayTicks = (long)(_initialDelay.Ticks * Math.Pow(_factor, retryAttempt - 1));
-        var delay = TimeSpan.FromTicks(delayTicks);
-        var jitter = TimeSpan.FromMilliseconds(Math.Abs(delay.TotalMilliseconds * _jitterFactor * (NextDouble() * 2 - 1)));
-        return delay + jitter;
+        var baseDelay = TimeSpan.FromTicks(delayTicks);
+        if (baseDelay > _maxDelay) baseDelay = _maxDelay; // Cap base delay
+
+        var jitterMs = baseDelay.TotalMilliseconds * _jitterFactor * (NextDouble() * 2 - 1); // Signed jitter (centered)
+        var finalDelayMs = baseDelay.TotalMilliseconds + jitterMs;
+        return TimeSpan.FromMilliseconds(Math.Max(0, finalDelayMs)); // Prevent negative delays
     }
 
     private double NextDouble()
     {
         byte[] bytes = new byte[sizeof(double)];
         _random.GetBytes(bytes);
-        return BitConverter.ToUInt64(bytes, 0) / (double)(1UL << 53);
+        ulong ul = BitConverter.ToUInt64(bytes, 0) >> 11; // Fixed: Shift to get 53 bits
+        return ul / (double)(1UL << 53); // Correct normalization for [0, 1)
+    }
+}
+
+/// <summary>
+/// Custom exception for unexpected results during retries.
+/// </summary>
+public class UnexpectedResultException<TResult> : Exception
+{
+    public TResult Result { get; }
+
+    public UnexpectedResultException(TResult result) : base("Unexpected result")
+    {
+        Result = result;
     }
 }
 
@@ -119,7 +140,7 @@ public sealed class ExponentialBackOffWithJitterStrategy : IRetryStrategy
 public static class Retry
 {
     /// <summary>
-    /// Executes an asynchronous action with retry logic.
+    /// Executes an asynchronous action with retry logic. Total attempts = retryCount + 1.
     /// </summary>
     /// <typeparam name="TResult">The type of the result.</typeparam>
     /// <param name="action">The asynchronous action to execute.</param>
@@ -160,7 +181,7 @@ public static class Retry
         ReadOnlySpan<Type> retriableExceptions)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        List<Exception> exceptions = [];
+        var exceptions = new List<Exception>(retryCount + 1); // Preallocate capacity
 
         for (int retry = 0; retry <= retryCount; retry++)
         {
@@ -179,14 +200,15 @@ public static class Retry
                 var result = await action(cancellationToken);
                 if (shouldRetryOnResults?.Any(predicate => predicate(result)) == true)
                 {
-                    exceptions.Add(new Exception("Unexpected result"));
+                    exceptions.Add(new UnexpectedResultException<TResult>(result)); // Preserve result context
                     continue;
                 }
                 return result;
             }
             catch (Exception ex) when (retriableExceptions.IsEmpty || retriableExceptions.Contains(ex.GetType()))
             {
-                if (shouldRetryOnExceptions?.Any(predicate => predicate(ex)) != true)
+                var shouldRetry = shouldRetryOnExceptions?.Any(predicate => predicate(ex)) ?? true; // Fixed: Default to retry if no predicates
+                if (!shouldRetry)
                     throw;
                 exceptions.Add(ex);
             }
@@ -196,7 +218,7 @@ public static class Retry
     }
 
     /// <summary>
-    /// Executes a synchronous action with retry logic.
+    /// Executes a synchronous action with retry logic. Total attempts = retryCount + 1.
     /// </summary>
     /// <typeparam name="TResult">The type of the result.</typeparam>
     /// <param name="action">The action to execute.</param>
@@ -237,7 +259,7 @@ public static class Retry
         ReadOnlySpan<Type> retriableExceptions)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        List<Exception> exceptions = [];
+        var exceptions = new List<Exception>(retryCount + 1); // Preallocate capacity
 
         for (int retry = 0; retry <= retryCount; retry++)
         {
@@ -256,14 +278,15 @@ public static class Retry
                 var result = action();
                 if (shouldRetryOnResults?.Any(predicate => predicate(result)) == true)
                 {
-                    exceptions.Add(new Exception("Unexpected result"));
+                    exceptions.Add(new UnexpectedResultException<TResult>(result)); // Preserve result context
                     continue;
                 }
                 return result;
             }
             catch (Exception ex) when (retriableExceptions.IsEmpty || retriableExceptions.Contains(ex.GetType()))
             {
-                if (shouldRetryOnExceptions?.Any(predicate => predicate(ex)) != true)
+                var shouldRetry = shouldRetryOnExceptions?.Any(predicate => predicate(ex)) ?? true; // Fixed: Default to retry if no predicates
+                if (!shouldRetry)
                     throw;
                 exceptions.Add(ex);
             }
