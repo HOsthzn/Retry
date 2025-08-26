@@ -15,7 +15,7 @@ const Retry = {
             case Retry.Strategy.JITTER:
                 interval = retryInterval * Math.pow(2, attempt) * (Math.random() * 0.4 + 0.8); // ±20% jitter
                 break;
-            default: // FIXED_INTERVAL
+            default:
                 interval = retryInterval;
         }
         return Math.min(interval, maxDelay);
