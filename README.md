@@ -18,7 +18,7 @@ Func<CancellationToken, Task<int>> action = async (token) =>
     // Some asynchronous operation that could fail
     return await Task.FromResult(1);
 };
-var result = await Retry.DoAsync(action, retryCount: 3, maxDelay: TimeSpan.FromSeconds(10));
+var result = await Retry.DoAsync(action, retryCount: 3);
 ```
 
 **VB.NET**:
@@ -28,7 +28,7 @@ Dim action As Func(Of CancellationToken, Task(Of Integer)) = Async Function(toke
     ' Some asynchronous operation that could fail
     Return Await Task.FromResult(1)
 End Function
-Dim result = Await Retry.DoAsync(action, retryCount:=3, maxDelay:=TimeSpan.FromSeconds(10))
+Dim result = Await Retry.DoAsync(action, retryCount:=3)
 ```
 
 In this case, the action is retried up to 3 times if it fails, using a fixed delay of 1 second between each retry (default `FixedIntervalStrategy`).
@@ -43,7 +43,7 @@ Func<int> action = () =>
     // Some synchronous operation that could fail
     return 1;
 };
-var result = Retry.Do(action, retryCount: 3, retryStrategy: new FixedIntervalStrategy(TimeSpan.FromSeconds(3)), maxDelay: TimeSpan.FromSeconds(10));
+var result = Retry.Do(action, retryCount: 3, retryStrategy: new FixedIntervalStrategy(TimeSpan.FromSeconds(3)));
 ```
 
 **VB.NET**:
@@ -53,7 +53,7 @@ Dim action As Func(Of Integer) = Function()
     ' Some synchronous operation that could fail
     Return 1
 End Function
-Dim result = Retry.Do(action, retryCount:=3, retryStrategy:=New FixedIntervalStrategy(TimeSpan.FromSeconds(3)), maxDelay:=TimeSpan.FromSeconds(10))
+Dim result = Retry.Do(action, retryCount:=3, retryStrategy:=New FixedIntervalStrategy(TimeSpan.FromSeconds(3)))
 ```
 
 The action is retried up to 3 times with a fixed delay of 3 seconds between retries.
@@ -67,7 +67,7 @@ Action action = () =>
 {
     // Some operation that could fail
 };
-Retry.Do(action, retryCount: 3, retryStrategy: new FixedIntervalStrategy(TimeSpan.FromSeconds(3)), maxDelay: TimeSpan.FromSeconds(10));
+Retry.Do(action, retryCount: 3, retryStrategy: new FixedIntervalStrategy(TimeSpan.FromSeconds(3)));
 ```
 
 **VB.NET**:
@@ -76,7 +76,7 @@ Retry.Do(action, retryCount: 3, retryStrategy: new FixedIntervalStrategy(TimeSpa
 Dim action As Action = Sub()
     ' Some operation that could fail
 End Sub
-Retry.Do(action, retryCount:=3, retryStrategy:=New FixedIntervalStrategy(TimeSpan.FromSeconds(3)), maxDelay:=TimeSpan.FromSeconds(10))
+Retry.Do(action, retryCount:=3, retryStrategy:=New FixedIntervalStrategy(TimeSpan.FromSeconds(3)))
 ```
 
 The action is retried up to 3 times with a fixed delay of 3 seconds between retries.
@@ -121,7 +121,7 @@ Func<int> action = () =>
     // Some operation that could fail
     return 1;
 };
-var result = Retry.Do(action, retryCount: 3, retryStrategy: new CustomExponentialBackOffStrategy(), maxDelay: TimeSpan.FromSeconds(10));
+var result = Retry.Do(action, retryCount: 3, retryStrategy: new CustomExponentialBackOffStrategy());
 ```
 
 **VB.NET**:
@@ -131,7 +131,7 @@ Dim action As Func(Of Integer) = Function()
     ' Some operation that could fail
     Return 1
 End Function
-Dim result = Retry.Do(action, retryCount:=3, retryStrategy:=New CustomExponentialBackOffStrategy(), maxDelay:=TimeSpan.FromSeconds(10))
+Dim result = Retry.Do(action, retryCount:=3, retryStrategy:=New CustomExponentialBackOffStrategy())
 ```
 
 ## Configuring Exception Handling
@@ -164,8 +164,7 @@ var result = Retry.Do(
     retryCount: 3,
     retryStrategy: new FixedIntervalStrategy(TimeSpan.FromSeconds(1)),
     shouldRetryOnExceptions: shouldRetryOnExceptions,
-    shouldRetryOnResults: shouldRetryOnResults,
-    maxDelay: TimeSpan.FromSeconds(10));
+    shouldRetryOnResults: shouldRetryOnResults);
 ```
 
 **VB.NET**:
@@ -191,8 +190,7 @@ Dim result = Retry.Do(
     retryCount:=3,
     retryStrategy:=New FixedIntervalStrategy(TimeSpan.FromSeconds(1)),
     shouldRetryOnExceptions:=shouldRetryOnExceptions,
-    shouldRetryOnResults:=shouldRetryOnResults,
-    maxDelay:=TimeSpan.FromSeconds(10))
+    shouldRetryOnResults:=shouldRetryOnResults)
 ```
 
 Retries occur if any exception or result condition is met.
@@ -215,8 +213,7 @@ var result = await Retry.DoAsync(
     retryCount: 3,
     retryStrategy: jitterStrategy,
     cancellationToken: CancellationToken.None,
-    shouldRetryOnException: ex => ex is TimeoutException,
-    maxDelay: TimeSpan.FromSeconds(10));
+    shouldRetryOnExceptions: new List<Func<Exception, bool>> { ex => ex is TimeoutException });
 ```
 
 **VB.NET**:
@@ -234,8 +231,7 @@ Dim result = Await Retry.DoAsync(
     retryCount:=3,
     retryStrategy:=jitterStrategy,
     cancellationToken:=CancellationToken.None,
-    shouldRetryOnException:=Function(ex) TypeOf ex Is TimeoutException,
-    maxDelay:=TimeSpan.FromSeconds(10))
+    shouldRetryOnExceptions:=New List(Of Func(Of Exception, Boolean)) From {Function(ex) TypeOf ex Is TimeoutException})
 ```
 
 The action is retried up to 3 times with exponential back-off (starting at 1 second) plus centered jitter (±20% by default), capped at 10 seconds.
