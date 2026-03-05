@@ -72,9 +72,10 @@ Public NotInheritable Class ExponentialBackOffStrategy
     End Sub
 
     Public Function GetNextDelay(retryAttempt As Integer) As TimeSpan Implements IRetryStrategy.GetNextDelay
+        Dim delayTicks As Long
         Try
             Checked
-                Dim delayTicks = CLng(_initialDelay.Ticks * Math.Pow(_factor, retryAttempt - 1)) ' Added overflow check
+                delayTicks = CLng(_initialDelay.Ticks * Math.Pow(_factor, retryAttempt - 1)) ' Added overflow check
             End Checked
         Catch ex As OverflowException
             Return _maxDelay ' Cap on overflow

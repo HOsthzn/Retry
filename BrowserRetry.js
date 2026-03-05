@@ -31,7 +31,7 @@ const Retry = {
                 if (attempt > 0) {
                     const delay = Retry.getRetryInterval(attempt, retryInterval, strategy, maxDelay);
                     await new Promise(resolve => setTimeout(resolve, delay));
-                    logger(`Attempt ${attempt + 1} failed, retrying in ${delay}ms`);
+                    logger(`Attempt ${attempt} failed, retrying in ${delay}ms`);
                 }
                 return await action();
             } catch (ex) {
